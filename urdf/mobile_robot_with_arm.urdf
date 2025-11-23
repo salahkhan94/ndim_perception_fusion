@@ -6,7 +6,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="0.5 0.5 0.15"/>
+        <box size="0.8 0.5 0.15"/>
       </geometry>
       <material name="blue">
         <color rgba="0 0 1 1"/>
@@ -15,17 +15,17 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="0.5 0.5 0.15"/>
+        <box size="0.8 0.5 0.15"/>
       </geometry>
     </collision>
     <inertial>
         <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="15.0" />
-        <inertia ixx="0.0001" 
+        <mass value="150.0" />
+        <inertia ixx="3.4" 
             ixy="0"  ixz="0"
-            iyx="0"  iyy="0.0001" 
+            iyx="0"  iyy="8.3" 
             iyz="0"
-            izx="0"  izy="0"  izz="0.0002" />
+            izx="0"  izy="0"  izz="11.1" />
     </inertial>
   </link>
 
@@ -57,11 +57,11 @@
     </inertial>
   </link>
 
-  <!-- 車体リンク <-> 左車輪リンク をつなげるジョイント -->
+  <!-- 車体リンク <-> 左車輪リンク をつなげるジョイント (Rear Left) -->
   <joint name="left_wheel_joint" type="continuous">
     <parent link="base_link"/>
     <child link="left_wheel_link"/>
-    <origin xyz="0.0 -0.27 -0.075" rpy="0 0 0"/>
+    <origin xyz="-0.3 -0.27 -0.075" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
   </joint>
 
@@ -93,11 +93,83 @@
     </inertial>
   </link>
 
-  <!-- 車体リンク <-> 右車輪リンク をつなげるジョイント -->
+  <!-- 車体リンク <-> 右車輪リンク をつなげるジョイント (Rear Right) -->
   <joint name="right_wheel_joint" type="continuous">
     <parent link="base_link"/>
     <child link="right_wheel_link"/>
-    <origin xyz="0.0 0.27 -0.075" rpy="0 0 0"/>
+    <origin xyz="-0.3 0.27 -0.075" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- 前左車輪リンク  -->
+  <link name="front_left_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.57 0 0 "/>
+      <geometry>
+        <cylinder length="0.04" radius="0.08"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.57 0 0"/>
+      <geometry>
+        <cylinder length="0.04" radius="0.08"/>
+      </geometry>
+    </collision>
+    <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <mass value="3.0" />
+        <inertia ixx="0.0001" 
+            ixy="0"  ixz="0"
+            iyx="0"  iyy="0.0001" 
+            iyz="0"
+            izx="0"  izy="0"  izz="0.0002" />
+    </inertial>
+  </link>
+
+  <!-- 車体リンク <-> 前左車輪リンク をつなげるジョイント -->
+  <joint name="front_left_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="front_left_wheel_link"/>
+    <origin xyz="0.3 -0.27 -0.075" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- 前右車輪リンク  -->
+  <link name="front_right_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.57 0 0 "/>
+      <geometry>
+        <cylinder length="0.04" radius="0.08"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.57 0 0 "/>
+      <geometry>
+        <cylinder length="0.04" radius="0.08"/>
+      </geometry>
+    </collision>
+    <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <mass value="3.0" />
+        <inertia ixx="0.0001" 
+            ixy="0"  ixz="0"
+            iyx="0"  iyy="0.0001" 
+            iyz="0"
+            izx="0"  izy="0"  izz="0.0002" />
+    </inertial>
+  </link>
+
+  <!-- 車体リンク <-> 前右車輪リンク をつなげるジョイント -->
+  <joint name="front_right_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="front_right_wheel_link"/>
+    <origin xyz="0.3 0.27 -0.075" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
   </joint>
 
@@ -133,7 +205,7 @@
   <joint name="front_caster_joint" type="fixed">
     <parent link="base_link"/>
     <child link="front_caster_link"/>
-    <origin xyz="0.15 0.0 -0.11" rpy="0 0 0"/>
+    <origin xyz="0.35 0.0 -0.11" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
   </joint>
 
@@ -169,7 +241,7 @@
   <joint name="back_caster_joint" type="fixed">
     <parent link="base_link"/>
     <child link="back_caster_link"/>
-    <origin xyz="-0.15 0.0 -0.11" rpy="0 0 0"/>
+    <origin xyz="-0.35 0.0 -0.11" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
   </joint>
 
@@ -205,7 +277,7 @@
   <joint name="bumper_joint" type="fixed">
     <parent link="base_link"/>
     <child link="bumper_link"/>
-    <origin xyz="0.2575 0.0 0.0" rpy="0 0 0"/>
+    <origin xyz="0.4075 0.0 0.0" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
   </joint>
 
@@ -279,7 +351,7 @@
   <joint name="rgbd_camera_joint" type="fixed">
     <parent link="base_link"/>
     <child link="rgbd_camera_link"/>
-    <origin xyz="0.2 0.0 0.12" rpy="0 0 0"/>
+    <origin xyz="0.4 0.0 0.12" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
   </joint>
 
@@ -340,336 +412,490 @@
     <axis xyz="0 0 1"/>
   </joint>
 
-  <!-- ===================== 6DOF Arm ==============================================-->
-  <!-- Arm base_link (attached to mount) -->
-  <link name="arm_base_link">
+  <!-- ===================== UR5 Arm ==============================================-->
+  <!-- UR5 Materials -->
+  <material name="LightGrey">
+    <color rgba="0.8 0.8 0.8 1.0"/>
+  </material>
+  <material name="DarkGrey">
+    <color rgba="0.2 0.2 0.2 1.0"/>
+  </material>
+
+  <!-- UR5 Base Link -->
+  <link name="ur5_base_link">
     <visual>
-      <origin xyz="0 0 0.2" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.1" length="0.4"/>
+        <mesh filename="ur5/visual/base.stl"/>
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1"/>
-      </material>
+      <material name="LightGrey"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.2" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.1" length="0.4"/>
+        <mesh filename="ur5/collision/base.stl"/>
       </geometry>
     </collision>
     <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="1.0" />
-        <inertia ixx="0.01" 
-            ixy="0"  ixz="0"
-            iyx="0"  iyy="0.01" 
-            iyz="0"
-            izx="0"  izy="0"  izz="0.01" />
+      <mass value="4.0"/>
+      <origin rpy="0 0 0" xyz="0.0 0.0 0.0"/>
+      <inertia ixx="0.00443333156" ixy="0.0" ixz="0.0" iyy="0.00443333156" iyz="0.0" izz="0.0072"/>
     </inertial>
   </link>
 
-  <!-- Joint connecting arm base to mount -->
-  <joint name="arm_base_joint" type="fixed">
+  <!-- Joint connecting UR5 base to mount -->
+  <joint name="ur5_base_mount_joint" type="fixed">
     <parent link="arm_base_mount_link"/>
-    <child link="arm_base_link"/>
-    <origin xyz="0 0 0.2" rpy="0 0 0"/>
+    <child link="ur5_base_link"/>
+    <origin xyz="0.0 0.0 0.2" rpy="0 0 0"/>
+  </joint>
+
+  <!-- UR5 Shoulder Pan Joint -->
+  <joint name="shoulder_pan_joint" type="revolute">
+    <parent link="ur5_base_link"/>
+    <child link="shoulder_link"/>
+    <origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.089159"/>
     <axis xyz="0 0 1"/>
+    <limit effort="150.0" lower="-6.28318530718" upper="6.28318530718" velocity="3.15"/>
+    <dynamics damping="0.0" friction="0.0"/>
   </joint>
 
-  <!-- link1 -->
-  <link name="link1">
+  <!-- UR5 Shoulder Link -->
+  <link name="shoulder_link">
     <visual>
-      <origin xyz="0 0 0.15" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.3"/>
+        <mesh filename="ur5/visual/shoulder.stl"/>
       </geometry>
-      <material name="red">
-        <color rgba="1 0 0 1"/>
-      </material>
+      <material name="DarkGrey"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.15" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.3"/>
+        <mesh filename="ur5/collision/shoulder.stl"/>
       </geometry>
     </collision>
     <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="0.1" />
-        <inertia ixx="0.000034533333" 
-            ixy="0"  ixz="0"
-            iyx="0"  iyy="0.000034533333" 
-            iyz="0"
-            izx="0"  izy="0"  izz="0.0000648" />
+      <mass value="3.7"/>
+      <origin rpy="0 0 0" xyz="0.0 0.0 0.0"/>
+      <inertia ixx="0.010267495893" ixy="0.0" ixz="0.0" iyy="0.010267495893" iyz="0.0" izz="0.00666"/>
     </inertial>
   </link>
 
-  <!-- joint1 -->
-  <joint name="joint1" type="revolute">
-    <parent link="arm_base_link"/>
-    <child link="link1"/>
-    <origin xyz="0 0 0.4" rpy="0 0 0"/>
+  <!-- UR5 Shoulder Lift Joint -->
+  <joint name="shoulder_lift_joint" type="revolute">
+    <parent link="shoulder_link"/>
+    <child link="upper_arm_link"/>
+    <origin rpy="0.0 1.57079632679 0.0" xyz="0.0 0.13585 0.0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="150.0" lower="-6.28318530718" upper="6.28318530718" velocity="3.15"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <!-- UR5 Upper Arm Link -->
+  <link name="upper_arm_link">
+    <visual>
+      <geometry>
+        <mesh filename="ur5/visual/upperarm.stl"/>
+      </geometry>
+      <material name="LightGrey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="ur5/collision/upperarm.stl"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="8.393"/>
+      <origin rpy="0 0 0" xyz="0.0 0.0 0.28"/>
+      <inertia ixx="0.22689067591" ixy="0.0" ixz="0.0" iyy="0.22689067591" iyz="0.0" izz="0.0151074"/>
+    </inertial>
+  </link>
+
+  <!-- UR5 Elbow Joint -->
+  <joint name="elbow_joint" type="revolute">
+    <parent link="upper_arm_link"/>
+    <child link="forearm_link"/>
+    <origin rpy="0.0 0.0 0.0" xyz="0.0 -0.1197 0.425"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="150.0" lower="-3.14159265359" upper="3.14159265359" velocity="3.15"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <!-- UR5 Forearm Link -->
+  <link name="forearm_link">
+    <visual>
+      <geometry>
+        <mesh filename="ur5/visual/forearm.stl"/>
+      </geometry>
+      <material name="DarkGrey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="ur5/collision/forearm.stl"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="2.275"/>
+      <origin rpy="0 0 0" xyz="0.0 0.0 0.25"/>
+      <inertia ixx="0.049443313556" ixy="0.0" ixz="0.0" iyy="0.049443313556" iyz="0.0" izz="0.004095"/>
+    </inertial>
+  </link>
+
+  <!-- UR5 Wrist 1 Joint -->
+  <joint name="wrist_1_joint" type="revolute">
+    <parent link="forearm_link"/>
+    <child link="wrist_1_link"/>
+    <origin rpy="0.0 1.57079632679 0.0" xyz="0.0 0.0 0.39225"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="28.0" lower="-6.28318530718" upper="6.28318530718" velocity="3.2"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <!-- UR5 Wrist 1 Link -->
+  <link name="wrist_1_link">
+    <visual>
+      <geometry>
+        <mesh filename="ur5/visual/wrist1.stl"/>
+      </geometry>
+      <material name="LightGrey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="ur5/collision/wrist1.stl"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.219"/>
+      <origin rpy="0 0 0" xyz="0.0 0.0 0.0"/>
+      <inertia ixx="0.111172755531" ixy="0.0" ixz="0.0" iyy="0.111172755531" iyz="0.0" izz="0.21942"/>
+    </inertial>
+  </link>
+
+  <!-- UR5 Wrist 2 Joint -->
+  <joint name="wrist_2_joint" type="revolute">
+    <parent link="wrist_1_link"/>
+    <child link="wrist_2_link"/>
+    <origin rpy="0.0 0.0 0.0" xyz="0.0 0.093 0.0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-1.57" upper="1.57" effort="10" velocity="10"/>
+    <limit effort="28.0" lower="-6.28318530718" upper="6.28318530718" velocity="3.2"/>
+    <dynamics damping="0.0" friction="0.0"/>
   </joint>
 
-  <!-- link2 -->
-  <link name="link2">
+  <!-- UR5 Wrist 2 Link -->
+  <link name="wrist_2_link">
     <visual>
-      <origin xyz="0 0.0 0.25" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.5"/>
+        <mesh filename="ur5/visual/wrist2.stl"/>
       </geometry>
-      <material name="green">
-        <color rgba="0 1 0 1"/>
-      </material>
+      <material name="DarkGrey"/>
     </visual>
     <collision>
-      <origin xyz="0 0.0 0.25" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.5"/>
+        <mesh filename="ur5/collision/wrist2.stl"/>
       </geometry>
     </collision>
     <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="0.1" />
-        <inertia ixx="0.000034533333" 
-            ixy="0"  ixz="0"
-            iyx="0"  iyy="0.000034533333" 
-            iyz="0"
-            izx="0"  izy="0"  izz="0.0000648" />
+      <mass value="1.219"/>
+      <origin rpy="0 0 0" xyz="0.0 0.0 0.0"/>
+      <inertia ixx="0.111172755531" ixy="0.0" ixz="0.0" iyy="0.111172755531" iyz="0.0" izz="0.21942"/>
     </inertial>
   </link>
 
-  <!-- joint2 -->
-  <joint name="joint2" type="revolute">
-    <parent link="link1"/>
-    <child link="link2"/>
-    <origin xyz="0 0 0.3" rpy="0 0 0"/>
+  <!-- UR5 Wrist 3 Joint -->
+  <joint name="wrist_3_joint" type="revolute">
+    <parent link="wrist_2_link"/>
+    <child link="wrist_3_link"/>
+    <origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.09465"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-1.57" upper="1.57" effort="10" velocity="10"/>
+    <limit effort="28.0" lower="-6.28318530718" upper="6.28318530718" velocity="3.2"/>
+    <dynamics damping="0.0" friction="0.0"/>
   </joint>
 
-  <!-- link3 -->
-  <link name="link3">
+  <!-- UR5 Wrist 3 Link (End Effector) -->
+  <link name="wrist_3_link">
     <visual>
-      <origin xyz="0 0.0 0.25" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.5"/>
+        <mesh filename="ur5/visual/wrist3.stl"/>
       </geometry>
-      <material name="red">
-        <color rgba="1 0 0 1"/>
-      </material>
+      <material name="LightGrey"/>
     </visual>
     <collision>
-      <origin xyz="0 0.0 0.25" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.5"/>
+        <mesh filename="ur5/collision/wrist3.stl"/>
       </geometry>
     </collision>
     <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="0.1" />
-        <inertia ixx="0.000034533333" 
-            ixy="0"  ixz="0"
-            iyx="0"  iyy="0.000034533333" 
-            iyz="0"
-            izx="0"  izy="0"  izz="0.0000648" />
+      <mass value="0.1879"/>
+      <origin rpy="0 0 0" xyz="0.0 0.0 0.0"/>
+      <inertia ixx="0.0171364731454" ixy="0.0" ixz="0.0" iyy="0.0171364731454" iyz="0.0" izz="0.033822"/>
     </inertial>
   </link>
 
-  <!-- joint3 -->
-  <joint name="joint3" type="revolute">
-    <parent link="link2"/>
-    <child link="link3"/>
-    <origin xyz="0 0 0.5" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="-1.57" upper="1.57" effort="10" velocity="10"/>
+  <!-- ===================== Robotiq Gripper ==============================================-->
+  <!-- Gripper Material -->
+  <material name="Blanc">
+    <color rgba="1.0 1.0 1.0 1.0"/>
+  </material>
+
+  <!-- Gripper Base Link (connects to UR5 wrist_3_link) -->
+  <link name="gripper_base_link">
+    <inertial>
+      <mass value="0.001"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <inertia ixx="0" ixy="0.0" ixz="0.0" iyy="0.0" iyz="0.0" izz="0.0"/>
+    </inertial>
+  </link>
+
+  <!-- Joint connecting gripper to UR5 wrist_3_link -->
+  <joint name="wrist_3_gripper_joint" type="fixed">
+    <parent link="wrist_3_link"/>
+    <child link="gripper_base_link"/>
+    <origin rpy="0 0 0" xyz="0 0 0.0"/>
   </joint>
 
-  <!-- link4 -->
-  <link name="link4">
+  <!-- Robotiq Base -->
+  <joint name="gripper_base_link_robotiq_2f_85_base_joint" type="fixed">
+    <parent link="gripper_base_link"/>
+    <child link="robotiq_2f_85_base"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+  </joint>
+  <link name="robotiq_2f_85_base">
+    <inertial>
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.000190833333333" ixy="0" ixz="0" iyy="0.00018" iyz="0" izz="0.000190833333333"/>
+    </inertial>
     <visual>
-      <origin xyz="0 0.0 0.05" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.1"/>
+        <mesh filename="gripper/robotiq-2f-base.obj" scale="0.5 0.5 0.5"/>
       </geometry>
-      <material name="blue">
-        <color rgba="0 0 1 1"/>
-      </material>
+      <material name="Blanc"/>
+    </visual>
+  </link>
+
+  <!-- Right Finger -->
+  <joint name="robotiq_2f_85_right_driver_joint" type="revolute">
+    <origin rpy="0 0 0" xyz="0 0.1530055 0.27452"/>
+    <parent link="robotiq_2f_85_base"/>
+    <child link="robotiq_2f_85_right_driver"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="60" lower="0.0" upper="0.834" velocity="1.91986177778"/>
+  </joint>
+  <link name="robotiq_2f_85_right_driver">
+    <inertial>
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.000190833333333" ixy="0" ixz="0" iyy="0.00018" iyz="0" izz="0.000190833333333"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="gripper/robotiq-2f-driver.obj" scale="0.5 0.5 0.5"/>
+      </geometry>
+      <material name="Blanc"/>
+    </visual>
+  </link>
+  <joint name="robotiq_2f_85_right_coupler_joint" type="fixed">
+    <origin rpy="0 0 0" xyz="0 0.1575 -0.0205"/>
+    <parent link="robotiq_2f_85_right_driver"/>
+    <child link="robotiq_2f_85_right_coupler"/>
+  </joint>
+  <link name="robotiq_2f_85_right_coupler">
+    <inertial>
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.000190833333333" ixy="0" ixz="0" iyy="0.00018" iyz="0" izz="0.000190833333333"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="gripper/robotiq-2f-coupler.obj" scale="0.5 0.5 0.5"/>
+      </geometry>
+      <material name="Blanc"/>
+    </visual>
+  </link>
+  <joint name="robotiq_2f_85_right_follower_joint" type="revolute">
+    <origin rpy="0 0 0" xyz="0 0.0305 0.2355"/>
+    <parent link="robotiq_2f_85_right_coupler"/>
+    <child link="robotiq_2f_85_right_follower"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="176" lower="-2.96705911111" upper="2.96705911111" velocity="1.91986177778"/>
+    <mimic joint="robotiq_2f_85_right_driver_joint" multiplier="-1"/>
+  </joint>
+  <link name="robotiq_2f_85_right_follower">
+    <visual>
+      <geometry>
+        <mesh filename="gripper/robotiq-2f-follower.obj" scale="0.5 0.5 0.5"/>
+      </geometry>
+      <material name="Blanc"/>
     </visual>
     <collision>
-      <origin xyz="0 0.0 0.05" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.1"/>
+        <mesh filename="gripper/robotiq-2f-follower.stl" scale="0.005 0.005 0.005"/>
       </geometry>
     </collision>
     <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="0.1" />
-        <inertia ixx="0.000034533333" 
-            ixy="0"  ixz="0"
-            iyx="0"  iyy="0.000034533333" 
-            iyz="0"
-            izx="0"  izy="0"  izz="0.0000648" />
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.000190833333333" ixy="0" ixz="0" iyy="0.00018" iyz="0" izz="0.000190833333333"/>
     </inertial>
   </link>
-
-  <!-- joint4 -->
-  <joint name="joint4" type="revolute">
-    <parent link="link3"/>
-    <child link="link4"/>
-    <origin xyz="0 0 0.5" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-1.57" upper="1.57" effort="10" velocity="10"/>
+  <joint name="robotiq_2f_85_right_pad_joint" type="fixed">
+    <parent link="robotiq_2f_85_right_follower"/>
+    <child link="robotiq_2f_85_right_pad"/>
   </joint>
-
-  <!-- link5 -->
-  <link name="link5">
+  <link name="robotiq_2f_85_right_pad">
+    <inertial>
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.00019" iyy="0.00018" izz="0.00019" ixy="0" iyz="0" ixz="0"/>
+    </inertial>
     <visual>
-      <origin xyz="0.0 0 0.05" rpy="0 0 0"/>
       <geometry>
-        <box size="0.25 0.25 0.1"/>
+        <mesh filename="gripper/robotiq-2f-pad.stl" scale="0.0005 0.0005 0.0005"/>
       </geometry>
-      <material name="red">
-        <color rgba="1 0 0 1"/>
-      </material>
+      <material name="Blanc"/>
     </visual>
     <collision>
-      <origin xyz="0.0 0 0.05" rpy="0 0 0"/>
       <geometry>
-        <box size="0.25 0.25 0.1"/>
+        <mesh filename="gripper/robotiq-2f-pad.stl" scale="0.005 0.005 0.005"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="robotiq_2f_85_right_spring_link_joint" type="revolute">
+    <origin rpy="0 0 0" xyz="0 0.06 0.307"/>
+    <parent link="robotiq_2f_85_base"/>
+    <child link="robotiq_2f_85_right_spring_link"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="176" lower="-2.96705911111" upper="2.96705911111" velocity="1.91986177778"/>
+    <mimic joint="robotiq_2f_85_right_driver_joint" multiplier="1"/>
+  </joint>
+  <link name="robotiq_2f_85_right_spring_link">
+    <inertial>
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.000190833333333" ixy="0" ixz="0" iyy="0.00018" iyz="0" izz="0.000190833333333"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="gripper/robotiq-2f-spring_link.obj" scale="0.5 0.5 0.5"/>
+      </geometry>
+      <material name="Blanc"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="gripper/robotiq-2f-spring_link.stl" scale="0.005 0.005 0.005"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Left Finger -->
+  <joint name="robotiq_2f_85_left_driver_joint" type="revolute">
+    <origin rpy="0 0 3.141592653589793" xyz="0 -0.1530055 0.27452"/>
+    <parent link="robotiq_2f_85_base"/>
+    <child link="robotiq_2f_85_left_driver"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="60" lower="0.0" upper="0.834" velocity="1.91986177778"/>
+  </joint>
+  <link name="robotiq_2f_85_left_driver">
+    <inertial>
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.000190833333333" ixy="0" ixz="0" iyy="0.00018" iyz="0" izz="0.000190833333333"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="gripper/robotiq-2f-driver.obj" scale="0.5 0.5 0.5"/>
+      </geometry>
+      <material name="Blanc"/>
+    </visual>
+  </link>
+  <joint name="robotiq_2f_85_left_coupler_joint" type="fixed">
+    <origin rpy="0 0 0" xyz="0 0.1575 -0.0205"/>
+    <parent link="robotiq_2f_85_left_driver"/>
+    <child link="robotiq_2f_85_left_coupler"/>
+  </joint>
+  <link name="robotiq_2f_85_left_coupler">
+    <inertial>
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.000190833333333" ixy="0" ixz="0" iyy="0.00018" iyz="0" izz="0.000190833333333"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="gripper/robotiq-2f-coupler.obj" scale="0.5 0.5 0.5"/>
+      </geometry>
+      <material name="Blanc"/>
+    </visual>
+  </link>
+  <joint name="robotiq_2f_85_left_follower_joint" type="revolute">
+    <origin rpy="0 0 0" xyz="0 0.0305 0.2355"/>
+    <parent link="robotiq_2f_85_left_coupler"/>
+    <child link="robotiq_2f_85_left_follower"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="176" lower="-2.96705911111" upper="2.96705911111" velocity="1.91986177778"/>
+    <mimic joint="robotiq_2f_85_right_driver_joint" multiplier="-1"/>
+  </joint>
+  <link name="robotiq_2f_85_left_follower">
+    <visual>
+      <geometry>
+        <mesh filename="gripper/robotiq-2f-follower.obj" scale="0.5 0.5 0.5"/>
+      </geometry>
+      <material name="Blanc"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="gripper/robotiq-2f-follower.stl" scale="0.005 0.005 0.005"/>
       </geometry>
     </collision>
     <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="0.1" />
-        <inertia ixx="0.000034533333" 
-            ixy="0"  ixz="0"
-            iyx="0"  iyy="0.000034533333" 
-            iyz="0"
-            izx="0"  izy="0"  izz="0.0000648" />
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.000190833333333" ixy="0" ixz="0" iyy="0.00018" iyz="0" izz="0.000190833333333"/>
     </inertial>
   </link>
-
-  <!-- joint5 -->
-  <joint name="joint5" type="revolute">
-    <parent link="link4"/>
-    <child link="link5"/>
-    <origin xyz="0 0 0.1" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="-1.57" upper="1.57" effort="10" velocity="10"/>
+  <joint name="robotiq_2f_85_left_pad_joint" type="fixed">
+    <parent link="robotiq_2f_85_left_follower"/>
+    <child link="robotiq_2f_85_left_pad"/>
   </joint>
-
-  <!-- link6 -->
-  <link name="link6">
+  <link name="robotiq_2f_85_left_pad">
+    <inertial>
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.00019" iyy="0.00018" izz="0.00019" ixy="0" iyz="0" ixz="0"/>
+    </inertial>
     <visual>
-      <origin xyz="0 0.0 0.075" rpy="0 0 0"/>
       <geometry>
-        <box size="0.15 0.15 0.15"/>
+        <mesh filename="gripper/robotiq-2f-pad.stl" scale="0.0005 0.0005 0.0005"/>
       </geometry>
-      <material name="blue">
-        <color rgba="0 0 1 1"/>
-      </material>
+      <material name="Blanc"/>
     </visual>
     <collision>
-      <origin xyz="0 0.0 0.075" rpy="0 0 0"/>
       <geometry>
-        <box size="0.15 0.15 0.15"/>
+        <mesh filename="gripper/robotiq-2f-pad.stl" scale="0.005 0.005 0.005"/>
       </geometry>
     </collision>
-    <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="0.1" />
-        <inertia ixx="0.000034533333" 
-            ixy="0"  ixz="0"
-            iyx="0"  iyy="0.000034533333" 
-            iyz="0"
-            izx="0"  izy="0"  izz="0.0000648" />
-    </inertial>
   </link>
-
-  <!-- joint6 -->
-  <joint name="joint6" type="revolute">
-    <parent link="link5"/>
-    <child link="link6"/>
-    <origin xyz="0 0 0.1" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-1.57" upper="1.57" effort="10" velocity="10"/>
+  <joint name="robotiq_2f_85_left_spring_link_joint" type="revolute">
+    <origin rpy="0 0 3.141592653589793" xyz="0 -0.06 0.307"/>
+    <parent link="robotiq_2f_85_base"/>
+    <child link="robotiq_2f_85_left_spring_link"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="176" lower="-2.96705911111" upper="2.96705911111" velocity="1.91986177778"/>
+    <mimic joint="robotiq_2f_85_right_driver_joint" multiplier="1"/>
   </joint>
-
-  <!-- ===================== Gripper ==============================================-->
-  <!-- gripper left link -->
-  <link name="gripper_left_link">
+  <link name="robotiq_2f_85_left_spring_link">
+    <inertial>
+      <mass value="0.1"/>
+      <origin xyz="0 0 0.275"/>
+      <inertia ixx="0.000190833333333" ixy="0" ixz="0" iyy="0.00018" iyz="0" izz="0.000190833333333"/>
+    </inertial>
     <visual>
-      <origin xyz="0 0.0 0.025" rpy="0 0 0"/>
       <geometry>
-        <box size="0.05 0.05 0.1"/>
+        <mesh filename="gripper/robotiq-2f-spring_link.obj" scale="0.5 0.5 0.5"/>
       </geometry>
-      <material name="red">
-        <color rgba="1 0 0 1"/>
-      </material>
+      <material name="Blanc"/>
     </visual>
     <collision>
-      <origin xyz="0 0.0 0.025" rpy="0 0 0"/>
       <geometry>
-        <box size="0.05 0.05 0.1"/>
+        <mesh filename="gripper/robotiq-2f-spring_link.stl" scale="0.005 0.005 0.005"/>
       </geometry>
     </collision>
-    <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="0.0001" />
-        <inertia ixx="0.000034533333" 
-            ixy="0"  ixz="0"
-            iyx="0"  iyy="0.000034533333" 
-            iyz="0"
-            izx="0"  izy="0"  izz="0.0000648" />
-    </inertial>
   </link>
-
-  <joint name="gripper_left_joint" type="prismatic">
-    <parent link="link6"/>
-    <child link="gripper_left_link"/>
-    <origin xyz="0.0 -0.0125 0.175" rpy="0 0 0"/>
-    <axis xyz="0 -1 0"/>
-    <limit effort="20" lower="0.0" upper="0.04" velocity="0.2"/>
-  </joint>
-
-  <!-- gripper right link -->
-  <link name="gripper_right_link">
-    <visual>
-      <origin xyz="0 0.0 0.025" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.05 0.05 0.1"/>
-      </geometry>
-      <material name="red">
-        <color rgba="1 0 0 1"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0.0 0.025" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.05 0.05 0.1"/>
-      </geometry>
-    </collision>
-    <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="0.0001" />
-        <inertia ixx="0.000034533333" 
-            ixy="0"  ixz="0"
-            iyx="0"  iyy="0.000034533333" 
-            iyz="0"
-            izx="0"  izy="0"  izz="0.0000648" />
-    </inertial>
-  </link>
-
-  <joint name="gripper_right_joint" type="prismatic">
-    <parent link="link6"/>
-    <child link="gripper_right_link"/>
-    <origin xyz="0.0 0.0125 0.175" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="20" lower="0.0" upper="0.04" velocity="0.2"/>
-  </joint>
 </robot>
 
