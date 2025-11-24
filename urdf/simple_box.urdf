@@ -9,7 +9,7 @@
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <!--base_boxのサイズ（見た目）を指定-->
-        <box size="0.6 0.6 0.6"/>
+        <box size="0.3 0.3 0.3"/>
       </geometry>
       <!--色の指定-->
       <material name="blue">
@@ -23,7 +23,7 @@
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <!--base_boxのサイズ（衝突領域）を指定-->
-        <box size="0.6 0.6 0.6"/>
+        <box size="0.3 0.3 0.3"/>
       </geometry>
       <!--衝突に関する設定なので、materialタグはない-->
     </collision>
@@ -33,7 +33,7 @@
         <!--linkの原点からのオフセット-->
         <origin xyz="0 0 0" rpy="0 0 0" />
         <!--linkの重量-->
-        <mass value="0.6" />
+        <mass value="0.3" />
         <!--イナーシャ-->
         <inertia ixx="0.000034533333" 
             ixy="0"  ixz="0"
