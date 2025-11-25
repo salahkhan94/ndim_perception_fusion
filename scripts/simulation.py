@@ -14,10 +14,13 @@ import pybullet
 import pybullet_data
 import numpy as np
 import os
+import cv2
+import tf2_ros
+import tf.transformations
 
-from sensor_msgs.msg import Image, LaserScan
+from sensor_msgs.msg import Image, LaserScan, CameraInfo
 from sensor_msgs.msg import JointState
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, TransformStamped
 from std_msgs.msg import Float64
 from cv_bridge import CvBridge
 from std_msgs.msg import Header
@@ -85,6 +88,9 @@ class PyBulletSimulation:
         
         # Initialize CvBridge for image conversion
         self.bridge = CvBridge()
+        
+        # Initialize static transform broadcaster
+        self._init_tf_broadcaster()
         
         # Control state variables
         
@@ -322,6 +328,18 @@ class PyBulletSimulation:
             self.camera_fov, self.aspect, self.near, self.far
         )
         
+        # Calculate camera intrinsics from FOV and image dimensions
+        # FOV is in degrees, convert to radians
+        fov_rad = np.radians(self.camera_fov)
+        # Focal length: fx = fy = (width / 2) / tan(FOV/2)
+        self.fx = self.image_width / (2.0 * np.tan(fov_rad / 2.0))
+        self.fy = self.image_height / (2.0 * np.tan(fov_rad / 2.0))
+        # Principal point (optical center) - typically at image center
+        self.cx = self.image_width / 2.0
+        self.cy = self.image_height / 2.0
+        
+        rospy.loginfo(f"Camera intrinsics: fx={self.fx:.2f}, fy={self.fy:.2f}, cx={self.cx:.2f}, cy={self.cy:.2f}")
+        
         # Get camera link indices
         self.rgbd_camera_link_idx = self._get_link_index_by_name("rgbd_camera_link")
         self.rgbd_camera_target_link_idx = self._get_link_index_by_name("rgbd_camera_target_vertual_link")
@@ -345,6 +363,8 @@ class PyBulletSimulation:
         self.rgb_pub = rospy.Publisher('camera/rgb/image_raw', Image, queue_size=1)
         self.depth_pub = rospy.Publisher('camera/depth/image_raw', Image, queue_size=1)
         self.seg_pub = rospy.Publisher('camera/segmentation/image_raw', Image, queue_size=1)
+        self.camera_info_pub = rospy.Publisher('camera/rgb/camera_info', CameraInfo, queue_size=1)
+        self.depth_camera_info_pub = rospy.Publisher('camera/depth/camera_info', CameraInfo, queue_size=1)
         self.lidar_pub = rospy.Publisher('scan', LaserScan, queue_size=1)
         self.joint_state_pub = rospy.Publisher('joint_states', JointState, queue_size=1)
     
@@ -364,6 +384,14 @@ class PyBulletSimulation:
         
         # Subscribe to mobile base velocity commands
         rospy.Subscriber('cmd_vel', Twist, self._cmd_vel_callback)
+    
+    def _init_tf_broadcaster(self):
+        """Initialize static transform broadcaster for camera_link to lidar_link"""
+        self.static_broadcaster = tf2_ros.StaticTransformBroadcaster()
+        
+        # Get transform between camera_link and lidar_link from PyBullet
+        # Both are attached to base_link, so we can get their relative transform
+        self._publish_camera_lidar_transform()
     
     def _arm_joint_state_callback(self, msg):
         """Callback for arm joint state control"""
@@ -546,6 +574,13 @@ class PyBulletSimulation:
         # Publish depth image
         try:
             # Depth image is in meters, PyBullet returns as 1D array
+            # Each pixel value represents the Z-depth (distance from camera) in meters
+            # Encoding: "32FC1" (32-bit float, single channel)
+            # To extract depth values in another node:
+            #   1. Subscribe to '/camera/depth/image_raw'
+            #   2. Use cv_bridge: depth_array = bridge.imgmsg_to_cv2(msg, "32FC1")
+            #   3. Access depth at pixel (u, v): depth = depth_array[v, u]  # Note: row, col order
+            #   4. depth_array is numpy array of shape (height, width) with values in meters
             depth_array = np.array(depth_img, dtype=np.float32)
             depth_array = depth_array.reshape((self.image_height, self.image_width))
             depth_msg = self.bridge.cv2_to_imgmsg(depth_array, "32FC1")
@@ -559,13 +594,188 @@ class PyBulletSimulation:
             # Segmentation image contains object IDs
             seg_array = np.array(seg_img, dtype=np.int32)
             seg_array = seg_array.reshape((self.image_height, self.image_width))
-            # Convert to uint8 for mono8 encoding (may lose precision for high object IDs)
-            seg_array_uint8 = np.clip(seg_array, 0, 255).astype(np.uint8)
-            seg_msg = self.bridge.cv2_to_imgmsg(seg_array_uint8, "mono8")
+            
+            # Get unique object IDs (excluding -1 which is typically "no object")
+            unique_ids = np.unique(seg_array)
+            unique_ids = unique_ids[unique_ids >= 0]  # Remove negative IDs (background/no object)
+            
+            # Create a color mapping for each object ID
+            seg_colormap = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
+            
+            if len(unique_ids) > 0:
+                # Generate distinct colors for each object ID
+                # Use a hash-based approach to get consistent colors for each ID
+                for obj_id in unique_ids:
+                    mask = seg_array == obj_id
+                    # Generate a color based on object ID using HSV color space
+                    # Use object ID to generate hue (0-179 for OpenCV HSV)
+                    hue = int((obj_id * 179) % 180)  # Wrap around HSV hue range
+                    # Create a full saturation, full value color
+                    color_hsv = np.uint8([[[hue, 255, 255]]])
+                    color_bgr = cv2.cvtColor(color_hsv, cv2.COLOR_HSV2BGR)[0][0]
+                    seg_colormap[mask] = color_bgr
+            
+            # For background/no object pixels (ID < 0 or not in unique_ids), use black
+            background_mask = ~np.isin(seg_array, unique_ids)
+            seg_colormap[background_mask] = [0, 0, 0]  # Black for background
+            
+            # Add bounding boxes for each detected object
+            if len(unique_ids) > 0:
+                for obj_id in unique_ids:
+                    mask = seg_array == obj_id
+                    # Find bounding box coordinates
+                    coords = np.column_stack(np.where(mask))
+                    if len(coords) > 0:
+                        # Get min/max coordinates (note: y is first, x is second in np.where)
+                        y_min, x_min = coords.min(axis=0)
+                        y_max, x_max = coords.max(axis=0)
+                        
+                        # Get color for this object ID (same as used for the mask)
+                        hue = int((obj_id * 179) % 180)
+                        color_hsv = np.uint8([[[hue, 255, 255]]])
+                        color_bgr = cv2.cvtColor(color_hsv, cv2.COLOR_HSV2BGR)[0][0]
+                        color_tuple = tuple(map(int, color_bgr))
+                        
+                        # Draw bounding box (thick line for visibility)
+                        cv2.rectangle(seg_colormap, (x_min, y_min), (x_max, y_max), 
+                                     color_tuple, 2)
+                        
+                        # Add label with object ID
+                        label = f"ID:{obj_id}"
+                        label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                        # Draw background rectangle for text (slightly larger for padding)
+                        cv2.rectangle(seg_colormap, (x_min, y_min - label_size[1] - 4), 
+                                     (x_min + label_size[0] + 4, y_min), color_tuple, -1)
+                        # Draw text in white for contrast
+                        cv2.putText(seg_colormap, label, (x_min + 2, y_min - 2), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            # Convert BGR to RGB for ROS (OpenCV uses BGR, ROS expects RGB)
+            seg_colormap_rgb = cv2.cvtColor(seg_colormap, cv2.COLOR_BGR2RGB)
+            
+            # Publish as RGB8 image
+            seg_msg = self.bridge.cv2_to_imgmsg(seg_colormap_rgb, "rgb8")
             seg_msg.header = header
             self.seg_pub.publish(seg_msg)
         except Exception as e:
             rospy.logwarn(f"Error publishing segmented image: {e}")
+            import traceback
+            rospy.logwarn(traceback.format_exc())
+        
+        # Publish camera_info for RGB and depth
+        self._publish_camera_info(header)
+    
+    def _publish_camera_info(self, header):
+        """Publish camera_info message with camera intrinsics"""
+        try:
+            # Create CameraInfo message
+            camera_info = CameraInfo()
+            camera_info.header = header
+            camera_info.width = self.image_width
+            camera_info.height = self.image_height
+            
+            # Set distortion model (no distortion for simulated camera)
+            camera_info.distortion_model = "plumb_bob"
+            
+            # Distortion parameters (K1, K2, T1, T2, K3) - all zeros for no distortion
+            camera_info.D = [0.0, 0.0, 0.0, 0.0, 0.0]
+            
+            # Camera intrinsic matrix K (3x3)
+            # [fx  0  cx]
+            # [0  fy  cy]
+            # [0   0   1]
+            camera_info.K = [
+                self.fx, 0.0, self.cx,
+                0.0, self.fy, self.cy,
+                0.0, 0.0, 1.0
+            ]
+            
+            # Rectification matrix (identity for no rectification)
+            camera_info.R = [1.0, 0.0, 0.0,
+                            0.0, 1.0, 0.0,
+                            0.0, 0.0, 1.0]
+            
+            # Projection matrix P (3x4)
+            # Same as K but with extra column of zeros
+            camera_info.P = [
+                self.fx, 0.0, self.cx, 0.0,
+                0.0, self.fy, self.cy, 0.0,
+                0.0, 0.0, 1.0, 0.0
+            ]
+            
+            # Binning (no binning)
+            camera_info.binning_x = 1
+            camera_info.binning_y = 1
+            
+            # ROI (full image)
+            camera_info.roi.x_offset = 0
+            camera_info.roi.y_offset = 0
+            camera_info.roi.height = self.image_height
+            camera_info.roi.width = self.image_width
+            camera_info.roi.do_rectify = False
+            
+            # Publish for both RGB and depth cameras (same intrinsics)
+            self.camera_info_pub.publish(camera_info)
+            
+            # Update header frame_id for depth camera_info
+            depth_camera_info = camera_info
+            depth_camera_info.header.frame_id = "camera_link"  # Same frame
+            self.depth_camera_info_pub.publish(depth_camera_info)
+            
+        except Exception as e:
+            rospy.logwarn(f"Error publishing camera_info: {e}")
+    
+    def _publish_camera_lidar_transform(self):
+        """Publish static transform between camera_link and lidar_link"""
+        try:
+            # Get link states from PyBullet to compute relative transform
+            if self.rgbd_camera_link_idx is not None and self.lidar_link_idx is not None:
+                camera_state = pybullet.getLinkState(self.robot_id, self.rgbd_camera_link_idx)
+                lidar_state = pybullet.getLinkState(self.robot_id, self.lidar_link_idx)
+                
+                camera_pos = np.array(camera_state[0])
+                camera_quat = camera_state[1]
+                lidar_pos = np.array(lidar_state[0])
+                lidar_quat = lidar_state[1]
+                
+                # Compute relative transform: T_camera_lidar = T_camera_world^-1 * T_lidar_world
+                # Translation: relative position
+                relative_pos = camera_pos - lidar_pos
+                # Rotation: relative rotation
+                relative_quat = pybullet.getQuaternionFromEuler([-1.57, 0.0, -1.57])
+                rospy.loginfo("Using tf transformation values for camera-lidar transform")
+            else:
+                # Fallback: Use URDF values if links not found
+                # From URDF: lidar at (0.0, 0.0, 0.0975), camera at (0.4, 0.0, 0.12) relative to base_link
+                # Relative: (-0.4, 0.0, -0.0225)
+                relative_pos = [-0.4, 0.0, -0.0225]
+                relative_quat = [0.0, 0.0, 0.0, 1.0]  # No rotation
+                rospy.logwarn("Using URDF fallback values for camera-lidar transform")
+            
+            # Create transform message
+            transform = TransformStamped()
+            transform.header.stamp = rospy.Time.now()
+            transform.header.frame_id = "lidar_link"
+            transform.child_frame_id = "camera_link"
+            
+            transform.transform.translation.x = relative_pos[0]
+            transform.transform.translation.y = relative_pos[1]
+            transform.transform.translation.z = relative_pos[2]
+            
+            transform.transform.rotation.x = relative_quat[0]
+            transform.transform.rotation.y = relative_quat[1]
+            transform.transform.rotation.z = relative_quat[2]
+            transform.transform.rotation.w = relative_quat[3]
+            
+            # Publish static transform
+            self.static_broadcaster.sendTransform(transform)
+            rospy.loginfo(f"Published static transform: camera_link -> lidar_link "
+                         f"translation=({relative_pos[0]:.3f}, {relative_pos[1]:.3f}, {relative_pos[2]:.3f})")
+            
+        except Exception as e:
+            rospy.logwarn(f"Error publishing camera-lidar transform: {e}")
+            import traceback
+            rospy.logwarn(traceback.format_exc())
     
     def _get_2d_lidar_scan(self):
         """Get 2D lidar point cloud using ray casting"""
