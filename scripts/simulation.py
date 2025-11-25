@@ -45,6 +45,8 @@ class PyBulletSimulation:
         }
         self.gripper_position = 0.0
         self.cmd_vel = Twist()
+        self.obstacle_ids = []  # List to store obstacle IDs
+        self.wall_id = None  # Wall object ID
         
         # Simulation parameters
         self.publish_rate = rospy.Rate(30)  # 30 Hz for sensor data
@@ -59,6 +61,12 @@ class PyBulletSimulation:
         
         # Initialize robot
         self._load_robot()
+        
+        # Load obstacles around the robot
+        self._load_obstacles()
+        
+        # Load fixed wall
+        self._load_wall()
         
         # Initialize joint indices and parameters
         self._init_joint_info()
@@ -127,6 +135,96 @@ class PyBulletSimulation:
         # Step simulation a few times to let the arm settle
         for _ in range(10):
             pybullet.stepSimulation()
+    
+    def _load_obstacles(self):
+        """Load obstacles (boxes) around the robot within 10m radius"""
+        # Get ROS parameter for number of obstacles
+        num_obstacles = rospy.get_param('~num_obstacles', 10)
+        max_distance = rospy.get_param('~obstacle_max_distance', 10.0)  # meters
+        min_distance = rospy.get_param('~obstacle_min_distance', 1.5)  # meters (avoid too close to robot)
+        
+        # Resolve box URDF path
+        box_urdf_path = rospy.get_param('~box_urdf_path', '../urdf/simple_box.urdf')
+        if not os.path.isabs(box_urdf_path):
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            box_urdf_path = os.path.join(script_dir, box_urdf_path)
+        
+        # Box size from URDF is 0.3x0.3x0.3 meters
+        box_size = 0.3
+        box_half_height = box_size / 2.0  # 0.15m
+        
+        self.obstacle_ids = []
+        
+        rospy.loginfo(f"Loading {num_obstacles} obstacles within {min_distance}-{max_distance}m radius...")
+        
+        for i in range(num_obstacles):
+            # Random distance from robot center (avoid too close)
+            distance = np.random.uniform(min_distance, max_distance)
+            
+            # Random angle around robot (0 to 2π)
+            angle = np.random.uniform(0, 2 * np.pi)
+            
+            # Calculate box position (robot is at [0, 0, 0.1])
+            box_x = distance * np.cos(angle)
+            box_y = distance * np.sin(angle)
+            # Place box so bottom sits on ground (z = 0), so position is at half height
+            box_z = box_half_height  # 0.15m
+            
+            # Random orientation (optional - can be set to [0,0,0] for no rotation)
+            box_yaw = np.random.uniform(0, 2 * np.pi)
+            box_orientation = pybullet.getQuaternionFromEuler([0, 0, box_yaw])
+            
+            # Load the box (useFixedBase=False so boxes can fall and move due to physics)
+            try:
+                box_id = pybullet.loadURDF(box_urdf_path, 
+                                          [box_x, box_y, box_z], 
+                                          box_orientation,
+                                          useFixedBase=False)
+                self.obstacle_ids.append(box_id)
+                rospy.loginfo(f"Obstacle {i+1} loaded at position ({box_x:.2f}, {box_y:.2f}, {box_z:.2f}), distance: {distance:.2f}m")
+            except Exception as e:
+                rospy.logwarn(f"Failed to load obstacle {i+1}: {e}")
+        
+        rospy.loginfo(f"Total {len(self.obstacle_ids)} obstacles loaded around the robot.")
+        
+        # Step simulation a few times to let obstacles settle
+        for _ in range(20):
+            pybullet.stepSimulation()
+    
+    def _load_wall(self):
+        """Load a fixed wall (horizontal box) in the simulation"""
+        # Get ROS parameters for wall configuration
+        enable_wall = rospy.get_param('~enable_wall', True)
+        if not enable_wall:
+            rospy.loginfo("Wall loading disabled")
+            return
+        
+        # Resolve wall URDF path
+        wall_urdf_path = rospy.get_param('~wall_urdf_path', '../urdf/horizontal_box.urdf')
+        if not os.path.isabs(wall_urdf_path):
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            wall_urdf_path = os.path.join(script_dir, wall_urdf_path)
+        
+        # Wall position parameters (can be configured via ROS params)
+        wall_x = rospy.get_param('~wall_x', 5.0)  # meters in front of robot
+        wall_y = rospy.get_param('~wall_y', 0.0)  # meters to the side
+        wall_z = rospy.get_param('~wall_z', 0.5)  # height (half of 1m box height)
+        wall_yaw = rospy.get_param('~wall_yaw', 1.57)  # rotation around Z axis (radians)
+        
+        # Wall orientation (horizontal box is 10x1x1, so it's a long horizontal wall)
+        # Default orientation: wall perpendicular to Y-axis (facing robot)
+        wall_orientation = pybullet.getQuaternionFromEuler([0, 0, wall_yaw])
+        
+        try:
+            # Load wall as fixed base object (won't move)
+            self.wall_id = pybullet.loadURDF(wall_urdf_path,
+                                            [wall_x, wall_y, wall_z],
+                                            wall_orientation,
+                                            useFixedBase=True)
+            rospy.loginfo(f"Fixed wall loaded at position ({wall_x:.2f}, {wall_y:.2f}, {wall_z:.2f}) with yaw {wall_yaw:.2f} rad")
+        except Exception as e:
+            rospy.logwarn(f"Failed to load wall: {e}")
+            self.wall_id = None
     
     def _get_joint_index_by_name(self, joint_name):
         """Get the joint index by searching through all joints"""
@@ -524,7 +622,7 @@ class PyBulletSimulation:
                 ranges.append(distance)
             elif hit_object_id == -1:
                 # No hit, use max range
-                ranges.append(self.lidar_max_range)
+                ranges.append(self.lidar_max_range + 2)
             else:
                 # Hit the robot itself, try to extend the ray
                 min_distance = 0.4
@@ -538,7 +636,7 @@ class PyBulletSimulation:
                     distance = np.linalg.norm(np.array(hit_position_extended) - lidar_position)
                     ranges.append(distance)
                 else:
-                    ranges.append(self.lidar_max_range)
+                    ranges.append(self.lidar_max_range + 2)
         
         return np.array(ranges), angles
     
