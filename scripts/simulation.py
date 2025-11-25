@@ -573,21 +573,42 @@ class PyBulletSimulation:
         
         # Publish depth image
         try:
-            # Depth image is in meters, PyBullet returns as 1D array
-            # Each pixel value represents the Z-depth (distance from camera) in meters
+            # PyBullet returns z-buffer (normalized depth 0-1), not actual depth in meters
+            # Need to convert z-buffer to actual depth using: depth = far * near / (far - (far - near) * z_buffer)
+            z_buffer = np.array(depth_img, dtype=np.float32)
+            z_buffer = z_buffer.reshape((self.image_height, self.image_width))
+            
+            # Convert z-buffer to actual depth in meters
+            # Formula: depth = far * near / (far - (far - near) * z_buffer)
+            # This converts normalized z-buffer [0, 1] to actual depth [near, far] in meters
+            depth_array = self.far * self.near / (self.far - (self.far - self.near) * z_buffer)
+            
+            # Set invalid depths (where z_buffer is 1.0, meaning no object) to 0 or NaN
+            # z_buffer of 1.0 means the ray hit the far plane (no object)
+            depth_array[z_buffer >= 0.999] = 0.0  # or np.nan if you prefer
+            
+            # Log depth statistics for debugging
+            valid_depths = depth_array[depth_array > 0]
+            if len(valid_depths) > 0:
+                rospy.loginfo_throttle(5, f"Depth image stats: min={valid_depths.min():.3f}m, "
+                                         f"max={valid_depths.max():.3f}m, "
+                                         f"mean={valid_depths.mean():.3f}m, "
+                                         f"valid_pixels={len(valid_depths)}/{depth_array.size}")
+            
+            # Each pixel value now represents the Z-depth (distance from camera) in meters
             # Encoding: "32FC1" (32-bit float, single channel)
             # To extract depth values in another node:
             #   1. Subscribe to '/camera/depth/image_raw'
             #   2. Use cv_bridge: depth_array = bridge.imgmsg_to_cv2(msg, "32FC1")
             #   3. Access depth at pixel (u, v): depth = depth_array[v, u]  # Note: row, col order
             #   4. depth_array is numpy array of shape (height, width) with values in meters
-            depth_array = np.array(depth_img, dtype=np.float32)
-            depth_array = depth_array.reshape((self.image_height, self.image_width))
             depth_msg = self.bridge.cv2_to_imgmsg(depth_array, "32FC1")
             depth_msg.header = header
             self.depth_pub.publish(depth_msg)
         except Exception as e:
             rospy.logwarn(f"Error publishing depth image: {e}")
+            import traceback
+            rospy.logwarn(traceback.format_exc())
         
         # Publish segmented image
         try:
