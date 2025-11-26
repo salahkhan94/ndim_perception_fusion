@@ -588,12 +588,12 @@ class PyBulletSimulation:
             depth_array[z_buffer >= 0.999] = 0.0  # or np.nan if you prefer
             
             # Log depth statistics for debugging
-            valid_depths = depth_array[depth_array > 0]
-            if len(valid_depths) > 0:
-                rospy.loginfo_throttle(5, f"Depth image stats: min={valid_depths.min():.3f}m, "
-                                         f"max={valid_depths.max():.3f}m, "
-                                         f"mean={valid_depths.mean():.3f}m, "
-                                         f"valid_pixels={len(valid_depths)}/{depth_array.size}")
+            # valid_depths = depth_array[depth_array > 0]
+            # if len(valid_depths) > 0:
+            #     rospy.loginfo_throttle(5, f"Depth image stats: min={valid_depths.min():.3f}m, "
+            #                              f"max={valid_depths.max():.3f}m, "
+            #                              f"mean={valid_depths.mean():.3f}m, "
+            #                              f"valid_pixels={len(valid_depths)}/{depth_array.size}")
             
             # Each pixel value now represents the Z-depth (distance from camera) in meters
             # Encoding: "32FC1" (32-bit float, single channel)

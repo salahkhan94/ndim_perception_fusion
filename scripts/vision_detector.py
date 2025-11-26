@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """
 ROS node that subscribes to RGB image, depth image, and camera_info,
-and converts the depth image to a point cloud in the camera_link frame.
+and converts the depth image to point clouds in both camera_link and lidar_link frames.
 
 This node:
 - Subscribes to /camera/rgb/image_raw, /camera/depth/image_raw, and /camera/rgb/camera_info
 - Converts depth image to 3D point cloud using camera intrinsics
-- Publishes point cloud as sensor_msgs/PointCloud2
+- Publishes point cloud as sensor_msgs/PointCloud2 in camera_link frame to /camera/depth/points
+- Transforms point cloud to lidar_link frame using TF2 and publishes to /lidar/points
 """
 
 import rospy
 import numpy as np
 import cv2
+import tf2_ros
+import tf.transformations
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
 from cv_bridge import CvBridge
 from std_msgs.msg import Header
+from geometry_msgs.msg import TransformStamped
 
 
 class DepthToPointCloud:
@@ -47,14 +51,19 @@ class DepthToPointCloud:
         rospy.Subscriber('/camera/depth/image_raw', Image, self.depth_callback)
         rospy.Subscriber('/camera/rgb/camera_info', CameraInfo, self.camera_info_callback)
         
-        # Publisher
+        # Publishers
         self.pointcloud_pub = rospy.Publisher('/camera/depth/points', PointCloud2, queue_size=1)
+        self.pointcloud_lidar_pub = rospy.Publisher('/lidar/points', PointCloud2, queue_size=1)
+        
+        # TF2 buffer and listener for transforms
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         
         # Rate for publishing
         self.publish_rate = rospy.Rate(30)  # 30 Hz
         
         rospy.loginfo("Depth to PointCloud node initialized")
-        rospy.loginfo("Waiting for camera_info to start publishing point clouds...")
+        rospy.loginfo("Waiting for camera_info and TF transforms to start publishing point clouds...")
     
     def rgb_callback(self, msg):
         """Callback for RGB image"""
@@ -217,6 +226,66 @@ class DepthToPointCloud:
         
         return msg
     
+    def transform_points_to_lidar_frame(self, points, timestamp):
+        """
+        Transform points from camera_link frame to lidar_link frame using TF2
+        
+        Args:
+            points: Nx3 or Nx6 numpy array (x, y, z) or (x, y, z, r, g, b) in camera_link frame
+            timestamp: rospy.Time for the transform lookup
+        
+        Returns:
+            transformed_points: Nx3 or Nx6 numpy array in lidar_link frame, or None if transform fails
+        """
+        try:
+            # Lookup transform from camera_link to lidar_link
+            transform = self.tf_buffer.lookup_transform(
+                'lidar_link',  # target frame
+                'camera_link',  # source frame
+                timestamp,
+                timeout=rospy.Duration(0.1)
+            )
+            
+            # Extract translation and rotation from transform
+            translation = np.array([
+                transform.transform.translation.x,
+                transform.transform.translation.y,
+                transform.transform.translation.z
+            ])
+            
+            rotation_quat = [
+                transform.transform.rotation.x,
+                transform.transform.rotation.y,
+                transform.transform.rotation.z,
+                transform.transform.rotation.w
+            ]
+            
+            # Convert quaternion to rotation matrix
+            rotation_matrix = tf.transformations.quaternion_matrix(rotation_quat)[:3, :3]
+            
+            # Extract XYZ coordinates (first 3 columns)
+            xyz = points[:, :3]
+            
+            # Apply transform: R * p + t
+            # Transform points: new_point = R @ point + translation
+            xyz_transformed = (rotation_matrix @ xyz.T).T + translation
+            
+            # If points have RGB, preserve them
+            if points.shape[1] == 6:
+                rgb = points[:, 3:6]
+                transformed_points = np.hstack([xyz_transformed, rgb])
+            else:
+                transformed_points = xyz_transformed
+            
+            return transformed_points
+            
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            rospy.logwarn_throttle(5, f"TF transform lookup failed: {e}")
+            return None
+        except Exception as e:
+            rospy.logwarn(f"Error transforming points: {e}")
+            return None
+    
     def process_and_publish(self):
         """Process depth image and publish point cloud"""
         if not self.camera_info_received:
@@ -230,15 +299,15 @@ class DepthToPointCloud:
             depth_array = self.bridge.imgmsg_to_cv2(self.depth_image, desired_encoding="32FC1")
             
             # Debug: Log depth statistics
-            valid_depths = depth_array[depth_array > 0]
-            if len(valid_depths) > 0:
-                rospy.loginfo_throttle(5, f"Received depth image stats: min={valid_depths.min():.3f}m, "
-                                         f"max={valid_depths.max():.3f}m, "
-                                         f"mean={valid_depths.mean():.3f}m, "
-                                         f"std={valid_depths.std():.3f}m, "
-                                         f"valid_pixels={len(valid_depths)}/{depth_array.size}")
-            else:
-                rospy.logwarn_throttle(5, "No valid depth values found in depth image!")
+            # valid_depths = depth_array[depth_array > 0]
+            # if len(valid_depths) > 0:
+            #     rospy.loginfo_throttle(5, f"Received depth image stats: min={valid_depths.min():.3f}m, "
+            #                              f"max={valid_depths.max():.3f}m, "
+            #                              f"mean={valid_depths.mean():.3f}m, "
+            #                              f"std={valid_depths.std():.3f}m, "
+            #                              f"valid_pixels={len(valid_depths)}/{depth_array.size}")
+            # else:
+            #     rospy.logwarn_throttle(5, "No valid depth values found in depth image!")
             
             # Get RGB image if available
             rgb_array = None
@@ -252,21 +321,34 @@ class DepthToPointCloud:
             points = self.depth_to_pointcloud(depth_array, rgb_array)
             
             # Debug: Log point cloud statistics
-            if points is not None and len(points) > 0:
-                z_values = points[:, 2]  # Z coordinates
-                rospy.loginfo_throttle(5, f"Point cloud Z stats: min={z_values.min():.3f}m, "
-                                         f"max={z_values.max():.3f}m, "
-                                         f"mean={z_values.mean():.3f}m, "
-                                         f"std={z_values.std():.3f}m")
+            # if points is not None and len(points) > 0:
+            #     z_values = points[:, 2]  # Z coordinates
+            #     rospy.loginfo_throttle(5, f"Point cloud Z stats: min={z_values.min():.3f}m, "
+            #                              f"max={z_values.max():.3f}m, "
+            #                              f"mean={z_values.mean():.3f}m, "
+            #                              f"std={z_values.std():.3f}m")
             
             # Create header
             header = Header()
             header.stamp = rospy.Time.now()
             header.frame_id = "camera_link"  # Point cloud in camera frame
             
-            # Create and publish PointCloud2 message
+            # Create and publish PointCloud2 message in camera_link frame
             pointcloud_msg = self.create_pointcloud2_msg(points, header)
             self.pointcloud_pub.publish(pointcloud_msg)
+            
+            # Transform point cloud to lidar_link frame and publish
+            if points is not None and len(points) > 0:
+                points_lidar_frame = self.transform_points_to_lidar_frame(points, header.stamp)
+                if points_lidar_frame is not None:
+                    # Create header for lidar frame
+                    header_lidar = Header()
+                    header_lidar.stamp = header.stamp
+                    header_lidar.frame_id = "lidar_link"
+                    
+                    # Create and publish PointCloud2 message in lidar_link frame
+                    pointcloud_lidar_msg = self.create_pointcloud2_msg(points_lidar_frame, header_lidar)
+                    self.pointcloud_lidar_pub.publish(pointcloud_lidar_msg)
             
             if points is not None:
                 rospy.loginfo_throttle(2, f"Published point cloud with {len(points)} points")

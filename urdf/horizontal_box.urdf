@@ -12,8 +12,8 @@
         <box size="10 0.1 3"/>
       </geometry>
       <!--色の指定-->
-      <material name="blue">
-        <color rgba="0 0 1 1"/>
+      <material name="green">
+        <color rgba="0 1 0 1"/>
       </material>
     </visual>
 
