@@ -20,11 +20,12 @@ import tf.transformations
 
 from sensor_msgs.msg import Image, LaserScan, CameraInfo
 from sensor_msgs.msg import JointState
-from geometry_msgs.msg import Twist, TransformStamped
-from std_msgs.msg import Float64
+from geometry_msgs.msg import Twist, TransformStamped, Pose2D
+from std_msgs.msg import Float64, Header
 from cv_bridge import CvBridge
-from std_msgs.msg import Header
 
+# Try to import vision_msgs, fallback to basic messages if not available
+from vision_msgs.msg import Detection2DArray, Detection2D, BoundingBox2D, ObjectHypothesisWithPose
 
 class PyBulletSimulation:
     """Main class for PyBullet simulation with ROS integration"""
@@ -367,6 +368,10 @@ class PyBulletSimulation:
         self.depth_camera_info_pub = rospy.Publisher('camera/depth/camera_info', CameraInfo, queue_size=1)
         self.lidar_pub = rospy.Publisher('scan', LaserScan, queue_size=1)
         self.joint_state_pub = rospy.Publisher('joint_states', JointState, queue_size=1)
+        
+        # Publisher for object detections (bounding boxes, class, score)
+        self.detections_pub = rospy.Publisher('camera/detections', Detection2DArray, queue_size=1)
+        rospy.loginfo("Detection publishing enabled using vision_msgs")
     
     def _init_subscribers(self):
         """Initialize ROS subscribers"""
@@ -678,6 +683,10 @@ class PyBulletSimulation:
             seg_msg = self.bridge.cv2_to_imgmsg(seg_colormap_rgb, "rgb8")
             seg_msg.header = header
             self.seg_pub.publish(seg_msg)
+            
+            # Publish detections (bounding boxes, class, score)
+            if self.detections_pub is not None:
+                self._publish_detections(seg_array, unique_ids, header)
         except Exception as e:
             rospy.logwarn(f"Error publishing segmented image: {e}")
             import traceback
@@ -745,6 +754,78 @@ class PyBulletSimulation:
             
         except Exception as e:
             rospy.logwarn(f"Error publishing camera_info: {e}")
+    
+    def _publish_detections(self, seg_array, unique_ids, header):
+        """Publish object detections with bounding boxes, class, and score"""
+        if self.detections_pub is None:
+            return
+        
+        try:
+            detections_array = Detection2DArray()
+            detections_array.header = header
+            
+            if len(unique_ids) > 0:
+                for obj_id in unique_ids:
+                    mask = seg_array == obj_id
+                    # Find bounding box coordinates
+                    coords = np.column_stack(np.where(mask))
+                    if len(coords) > 0:
+                        # Get min/max coordinates (note: y is first, x is second in np.where)
+                        y_min, x_min = coords.min(axis=0)
+                        y_max, x_max = coords.max(axis=0)
+                        
+                        # Calculate bounding box center and size
+                        center_x = (x_min + x_max) / 2.0
+                        center_y = (y_min + y_max) / 2.0
+                        size_x = float(x_max - x_min)
+                        size_y = float(y_max - y_min)
+                        
+                        # Calculate score based on pixel count (normalized by image size)
+                        # More pixels = higher confidence
+                        pixel_count = np.sum(mask)
+                        total_pixels = self.image_width * self.image_height
+                        score = min(1.0, pixel_count / (total_pixels * 0.1))  # Normalize, cap at 1.0
+                    
+                        # Create Detection2D message
+                        detection = Detection2D()
+                        detection.header = header
+                        # Note: Detection2D in ROS 1 doesn't have an 'id' field
+                        # Object ID is stored in results[0].id instead
+                        
+                        # Create bounding box
+                        bbox = BoundingBox2D()
+                        bbox.center = Pose2D()
+                        bbox.center.x = center_x
+                        bbox.center.y = center_y
+                        bbox.center.theta = 0.0  # No rotation for axis-aligned bbox
+                        bbox.size_x = size_x
+                        bbox.size_y = size_y
+                        detection.bbox = bbox
+                        
+                        # Create object hypothesis (class and score)
+                        hypothesis = ObjectHypothesisWithPose()
+                        hypothesis.id = int(obj_id)  # Class ID (object ID from segmentation)
+                        hypothesis.score = float(score)  # Confidence score
+                        # Pose is identity for 2D detection
+                        hypothesis.pose.pose.position.x = 0.0
+                        hypothesis.pose.pose.position.y = 0.0
+                        hypothesis.pose.pose.position.z = 0.0
+                        hypothesis.pose.pose.orientation.x = 0.0
+                        hypothesis.pose.pose.orientation.y = 0.0
+                        hypothesis.pose.pose.orientation.z = 0.0
+                        hypothesis.pose.pose.orientation.w = 1.0
+                        
+                        detection.results = [hypothesis]
+                        
+                        detections_array.detections.append(detection)
+            
+            # Publish detections
+            self.detections_pub.publish(detections_array)
+            
+        except Exception as e:
+            rospy.logwarn(f"Error publishing detections: {e}")
+            import traceback
+            rospy.logwarn(traceback.format_exc())
     
     def _publish_camera_lidar_transform(self):
         """Publish static transform between camera_link and lidar_link"""
