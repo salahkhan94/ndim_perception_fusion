@@ -1,5 +1,6 @@
 <?xml version="1.0" ?>
-<robot name="simple_box">
+
+<robot name="plane_box">
   <!-- ===================== base_box - link1 ==============================================-->
   <!-- base_box -->
   <link name="box_link">
@@ -9,11 +10,11 @@
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <!--base_boxのサイズ（見た目）を指定-->
-        <box size="0.3 0.6 0.4"/>
+        <box size="5 5 0.01"/>
       </geometry>
       <!--色の指定-->
-      <material name="blue">
-        <color rgba="0 0 1 1"/>
+      <material name="red">
+        <color rgba="1 0 0 1"/>
       </material>
     </visual>
 
@@ -23,7 +24,7 @@
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <!--base_boxのサイズ（衝突領域）を指定-->
-        <box size="0.3 0.6 0.4"/>
+        <box size="5 5 0.01"/>
       </geometry>
       <!--衝突に関する設定なので、materialタグはない-->
     </collision>
@@ -33,7 +34,7 @@
         <!--linkの原点からのオフセット-->
         <origin xyz="0 0 0" rpy="0 0 0" />
         <!--linkの重量-->
-        <mass value="0.1" />
+        <mass value="1" />
         <!--イナーシャ-->
         <inertia ixx="0.000034533333" 
             ixy="0"  ixz="0"

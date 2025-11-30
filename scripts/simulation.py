@@ -51,6 +51,8 @@ class PyBulletSimulation:
         self.cmd_vel = Twist()
         self.obstacle_ids = []  # List to store obstacle IDs
         self.wall_id = None  # Wall object ID
+        self.pickup_platform_id = None  # Pickup platform object ID
+        self.bin_platform_id = None  # Bin platform object ID
         
         # Simulation parameters
         self.publish_rate = rospy.Rate(30)  # 30 Hz for sensor data
@@ -71,6 +73,9 @@ class PyBulletSimulation:
         
         # Load fixed wall
         self._load_wall()
+        
+        # Load pickup and bin platforms
+        self._load_platforms()
         
         # Initialize joint indices and parameters
         self._init_joint_info()
@@ -232,6 +237,45 @@ class PyBulletSimulation:
         except Exception as e:
             rospy.logwarn(f"Failed to load wall: {e}")
             self.wall_id = None
+    
+    def _load_platforms(self):
+        """Load pickup and bin platforms as fixed objects"""
+        # Resolve plane_box URDF path
+        plane_urdf_path = rospy.get_param('~plane_urdf_path', '../urdf/plane_box.urdf')
+        if not os.path.isabs(plane_urdf_path):
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            plane_urdf_path = os.path.join(script_dir, plane_urdf_path)
+        
+        # Platform positions
+        # Pickup platform: where target cuboids will be placed
+        pickup_pos = [0.0, 15.0, 0.005]  # (x, y, z) - z=0.05 means center at 0.05m (box is 0.1m tall, so bottom at 0.0)
+        # Bin platform: where picked objects will be placed
+        bin_pos = [0.0, -15.0, 0.005]  # (x, y, z)
+        
+        # Orientation (horizontal, no rotation)
+        platform_orientation = pybullet.getQuaternionFromEuler([0, 0, 0])
+        
+        try:
+            # Load pickup platform (fixed base)
+            self.pickup_platform_id = pybullet.loadURDF(plane_urdf_path,
+                                                         pickup_pos,
+                                                         platform_orientation,
+                                                         useFixedBase=True)
+            rospy.loginfo(f"Pickup platform loaded at position ({pickup_pos[0]:.2f}, {pickup_pos[1]:.2f}, {pickup_pos[2]:.2f})")
+        except Exception as e:
+            rospy.logwarn(f"Failed to load pickup platform: {e}")
+            self.pickup_platform_id = None
+        
+        try:
+            # Load bin platform (fixed base)
+            self.bin_platform_id = pybullet.loadURDF(plane_urdf_path,
+                                                      bin_pos,
+                                                      platform_orientation,
+                                                      useFixedBase=True)
+            rospy.loginfo(f"Bin platform loaded at position ({bin_pos[0]:.2f}, {bin_pos[1]:.2f}, {bin_pos[2]:.2f})")
+        except Exception as e:
+            rospy.logwarn(f"Failed to load bin platform: {e}")
+            self.bin_platform_id = None
     
     def _get_joint_index_by_name(self, joint_name):
         """Get the joint index by searching through all joints"""
