@@ -50,7 +50,7 @@ class PyBulletSimulation:
         self.gripper_position = 0.0
         self.cmd_vel = Twist()
         self.obstacle_ids = []  # List to store obstacle IDs
-        self.wall_id = None  # Wall object ID
+        self.wall_ids = []  # List to store wall object IDs
         self.pickup_platform_id = None  # Pickup platform object ID
         self.bin_platform_id = None  # Bin platform object ID
         
@@ -204,7 +204,7 @@ class PyBulletSimulation:
             pybullet.stepSimulation()
     
     def _load_wall(self):
-        """Load a fixed wall (horizontal box) in the simulation"""
+        """Load multiple fixed walls (horizontal boxes) in the simulation"""
         # Get ROS parameters for wall configuration
         enable_wall = rospy.get_param('~enable_wall', True)
         if not enable_wall:
@@ -217,26 +217,38 @@ class PyBulletSimulation:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             wall_urdf_path = os.path.join(script_dir, wall_urdf_path)
         
-        # Wall position parameters (can be configured via ROS params)
-        wall_x = rospy.get_param('~wall_x', 5.0)  # meters in front of robot
-        wall_y = rospy.get_param('~wall_y', 0.0)  # meters to the side
-        wall_z = rospy.get_param('~wall_z', 0.5)  # height (half of 1m box height)
-        wall_yaw = rospy.get_param('~wall_yaw', 1.57)  # rotation around Z axis (radians)
+        # Wall positions (x, y, z) and orientation (roll, pitch, yaw)
+        wall_configs = [
+            {'pos': [-5.0, -10.0, 1.5], 'rpy': [0, 0, 1.57]},
+            {'pos': [-5.0, 0.0, 1.5], 'rpy': [0, 0, 1.57]},
+            {'pos': [-5.0, 10.0, 1.5], 'rpy': [0, 0, 1.57]},
+            {'pos': [5.0, -10.0, 1.5], 'rpy': [0, 0, 1.57]},
+            {'pos': [5.0, 0.0, 1.5], 'rpy': [0, 0, 1.57]},
+            {'pos': [5.0, 10.0, 1.5], 'rpy': [0, 0, 1.57]},
+            {'pos': [0.0, 15.0, 1.5], 'rpy': [0, 0, 0]},
+            {'pos': [0.0, -15.0, 1.5], 'rpy': [0, 0, 0]},
+        ]
         
-        # Wall orientation (horizontal box is 10x1x1, so it's a long horizontal wall)
-        # Default orientation: wall perpendicular to Y-axis (facing robot)
-        wall_orientation = pybullet.getQuaternionFromEuler([0, 0, wall_yaw])
+        self.wall_ids = []
         
-        try:
-            # Load wall as fixed base object (won't move)
-            self.wall_id = pybullet.loadURDF(wall_urdf_path,
-                                            [wall_x, wall_y, wall_z],
+        for i, wall_cfg in enumerate(wall_configs):
+            wall_pos = wall_cfg['pos']
+            wall_rpy = wall_cfg['rpy']
+            wall_orientation = pybullet.getQuaternionFromEuler(wall_rpy)
+            
+            try:
+                # Load wall as fixed base object (won't move)
+                wall_id = pybullet.loadURDF(wall_urdf_path,
+                                            wall_pos,
                                             wall_orientation,
                                             useFixedBase=True)
-            rospy.loginfo(f"Fixed wall loaded at position ({wall_x:.2f}, {wall_y:.2f}, {wall_z:.2f}) with yaw {wall_yaw:.2f} rad")
-        except Exception as e:
-            rospy.logwarn(f"Failed to load wall: {e}")
-            self.wall_id = None
+                self.wall_ids.append(wall_id)
+                rospy.loginfo(f"Wall {i+1} loaded at position ({wall_pos[0]:.2f}, {wall_pos[1]:.2f}, {wall_pos[2]:.2f}) "
+                             f"with orientation (roll={wall_rpy[0]:.2f}, pitch={wall_rpy[1]:.2f}, yaw={wall_rpy[2]:.2f})")
+            except Exception as e:
+                rospy.logwarn(f"Failed to load wall {i+1}: {e}")
+        
+        rospy.loginfo(f"Total {len(self.wall_ids)} walls loaded successfully")
     
     def _load_platforms(self):
         """Load pickup and bin platforms as fixed objects"""
@@ -248,9 +260,9 @@ class PyBulletSimulation:
         
         # Platform positions
         # Pickup platform: where target cuboids will be placed
-        pickup_pos = [0.0, 15.0, 0.005]  # (x, y, z) - z=0.05 means center at 0.05m (box is 0.1m tall, so bottom at 0.0)
+        pickup_pos = [0.0, 13.0, 0.0005]  # (x, y, z) - z=0.05 means center at 0.05m (box is 0.1m tall, so bottom at 0.0)
         # Bin platform: where picked objects will be placed
-        bin_pos = [0.0, -15.0, 0.005]  # (x, y, z)
+        bin_pos = [0.0, -13.0, 0.0005]  # (x, y, z)
         
         # Orientation (horizontal, no rotation)
         platform_orientation = pybullet.getQuaternionFromEuler([0, 0, 0])

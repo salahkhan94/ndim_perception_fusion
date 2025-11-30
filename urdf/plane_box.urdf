@@ -10,7 +10,7 @@
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <!--base_boxのサイズ（見た目）を指定-->
-        <box size="5 5 0.01"/>
+        <box size="5 5 0.001"/>
       </geometry>
       <!--色の指定-->
       <material name="red">
@@ -24,7 +24,7 @@
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <!--base_boxのサイズ（衝突領域）を指定-->
-        <box size="5 5 0.01"/>
+        <box size="5 5 0.001"/>
       </geometry>
       <!--衝突に関する設定なので、materialタグはない-->
     </collision>
