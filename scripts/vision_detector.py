@@ -18,14 +18,11 @@ import tf.transformations
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
 from cv_bridge import CvBridge
 from std_msgs.msg import Header
-from geometry_msgs.msg import TransformStamped, PoseStamped, Pose, Point, Quaternion
+from geometry_msgs.msg import TransformStamped, PoseStamped, Pose, Point, Quaternion, PoseArray
 from vision_msgs.msg import Detection2DArray, Detection2D
-try:
-    import open3d as o3d
-    OPEN3D_AVAILABLE = True
-except ImportError:
-    OPEN3D_AVAILABLE = False
-    rospy.logwarn("Open3D not available. Cuboid pose estimation will be disabled.")
+
+import open3d as o3d
+OPEN3D_AVAILABLE = True
 
 
 class CuboidPoseEstimator:
@@ -695,9 +692,12 @@ class DepthToPointCloud:
         self.pointcloud_pub = rospy.Publisher('/camera/depth/points', PointCloud2, queue_size=1)
         self.pointcloud_lidar_pub = rospy.Publisher('/lidar/points', PointCloud2, queue_size=1)
         
-        # Pose publishers (camera_link and lidar_link frames)
-        self.pose_camera_pub = rospy.Publisher('/cuboid/pose/camera_link', PoseStamped, queue_size=1)
-        self.pose_lidar_pub = rospy.Publisher('/cuboid/pose/lidar_link', PoseStamped, queue_size=1)
+        # Pose publishers for multiple cuboids (lidar_link and map frames)
+        self.pose_lidar_pub = rospy.Publisher('/cuboids/poses/lidar_link', PoseArray, queue_size=1)
+        self.pose_map_pub = rospy.Publisher('/cuboids/poses/map', PoseArray, queue_size=1)
+        
+        # Minimum point count for pose estimation
+        self.min_points_for_pose = rospy.get_param('~min_points_for_pose', 50)
         
         # TF2 buffer and listener for transforms
         self.tf_buffer = tf2_ros.Buffer()
@@ -1112,7 +1112,8 @@ class DepthToPointCloud:
     
     def process_detections_and_publish(self):
         """
-        Process detections, filter for blue objects only, and generate point cloud for first blue object
+        Process detections, filter for ALL blue objects, generate combined point clouds,
+        and estimate poses for all blue cuboids that meet minimum point count criteria.
         """
         if not self.camera_info_received:
             return
@@ -1142,92 +1143,135 @@ class DepthToPointCloud:
                 rospy.logdebug("No detections received")
                 return
             
-            # Filter for blue objects only and find first blue object
-            selected_detection = None
+            # Find ALL blue objects
+            blue_detections = []
             for detection in detections_list:
-                # Check if object is blue
                 if rgb_array is not None and self.is_blue_object(detection, rgb_array):
-                    # Found first blue object
-                    selected_detection = detection
-                    rospy.loginfo_throttle(2, f"Selected blue object for point cloud generation")
-                    break
-                else:
-                    rospy.logdebug("Skipping non-blue object")
+                    blue_detections.append(detection)
             
-            # If no blue object found, return
-            if selected_detection is None:
+            if len(blue_detections) == 0:
                 rospy.logwarn_throttle(2, "No blue objects found in detections")
                 return
             
-            # Generate point cloud for the selected object's bounding box
-            points = self.depth_to_pointcloud_bbox(
-                depth_array,
-                selected_detection.bbox,
-                rgb_array
-            )
-            
-            if points is None or len(points) == 0:
-                rospy.logwarn_throttle(2, "No valid points generated for selected object")
-                return
-            
-            # Filter points to keep only perfectly blue-colored ones
-            if rgb_array is not None and points.shape[1] == 6:
-                points = self.filter_blue_points(points)
-                
-                if points is None or len(points) == 0:
-                    rospy.logwarn_throttle(2, "No blue points remaining after filtering")
-                    return
+            rospy.loginfo_throttle(2, f"Found {len(blue_detections)} blue object(s)")
             
             # Create header
             header = Header()
             header.stamp = rospy.Time.now()
-            header.frame_id = "camera_link"  # Point cloud in camera frame
+            header.frame_id = "camera_link"
             
-            # Create and publish PointCloud2 message in camera_link frame
-            pointcloud_msg = self.create_pointcloud2_msg(points, header)
-            self.pointcloud_pub.publish(pointcloud_msg)
+            # Lists to store point clouds and poses
+            all_points_camera = []
+            all_points_lidar = []
+            poses_lidar = []
+            poses_map = []
             
-            # Transform point cloud to lidar_link frame and publish
-            # points_lidar_frame = self.transform_points_to_lidar_frame(points, header.stamp)
-            # if points_lidar_frame is not None:
-            #     # Create header for lidar frame
-            #     header_lidar = Header()
-            #     header_lidar.stamp = header.stamp
-            #     header_lidar.frame_id = "lidar_link"
+            # Process each blue object
+            for i, detection in enumerate(blue_detections):
+                # Generate point cloud for this object's bounding box
+                points = self.depth_to_pointcloud_bbox(
+                    depth_array,
+                    detection.bbox,
+                    rgb_array
+                )
                 
-            #     # Create and publish PointCloud2 message in lidar_link frame
-            #     pointcloud_lidar_msg = self.create_pointcloud2_msg(points_lidar_frame, header_lidar)
-            #     self.pointcloud_lidar_pub.publish(pointcloud_lidar_msg)
-            
-            rospy.loginfo_throttle(2, f"Published point cloud with {len(points)} points for blue object")
-            
-            # Estimate cuboid pose
-            if self.pose_estimator is not None:
-                # Extract XYZ coordinates (first 3 columns)
-                points_xyz = points[:, :3]
+                if points is None or len(points) == 0:
+                    rospy.logdebug(f"Object {i}: No valid points generated")
+                    continue
                 
-                # Estimate pose (pass timestamp for TF lookups)
-                pose_result = self.pose_estimator.estimate_pose(points_xyz, timestamp=header.stamp)
-                
-                if pose_result and pose_result.get('success', False):
-                    # Publish pose in camera_link frame
-                    pose_camera = self._create_pose_stamped(
-                        pose_result['position'],
-                        pose_result['orientation'],
-                        header.stamp,
-                        'camera_link'
-                    )
-                    self.pose_camera_pub.publish(pose_camera)
+                # Filter points to keep only perfectly blue-colored ones
+                if rgb_array is not None and points.shape[1] == 6:
+                    points = self.filter_blue_points(points)
                     
-                    # Transform pose to lidar_link frame and publish
-                    pose_lidar = self._transform_pose_to_lidar_frame(pose_camera, header.stamp)
-                    if pose_lidar is not None:
-                        self.pose_lidar_pub.publish(pose_lidar)
+                    if points is None or len(points) == 0:
+                        rospy.logdebug(f"Object {i}: No blue points remaining after filtering")
+                        continue
+                
+                # Add to combined point cloud (always include in point cloud)
+                all_points_camera.append(points)
+                
+                # Check minimum point count for pose estimation
+                if len(points) < self.min_points_for_pose:
+                    rospy.logdebug(f"Object {i}: Insufficient points ({len(points)} < {self.min_points_for_pose}) for pose estimation, skipping pose")
+                    continue
+                
+                # Estimate cuboid pose
+                if self.pose_estimator is not None:
+                    # Extract XYZ coordinates (first 3 columns)
+                    points_xyz = points[:, :3]
                     
-                    rospy.loginfo_throttle(2, f"Published cuboid pose: position={pose_result['position']}, "
-                                             f"face_count={pose_result.get('face_count', 'unknown')}")
-                else:
-                    rospy.logwarn_throttle(2, "Failed to estimate cuboid pose")
+                    # Estimate pose (pass timestamp for TF lookups)
+                    pose_result = self.pose_estimator.estimate_pose(points_xyz, timestamp=header.stamp)
+                    
+                    if pose_result and pose_result.get('success', False):
+                        # Create pose in camera_link frame first
+                        pose_camera = self._create_pose_stamped(
+                            pose_result['position'],
+                            pose_result['orientation'],
+                            header.stamp,
+                            'camera_link'
+                        )
+                        
+                        # Transform pose to lidar_link frame
+                        pose_lidar = self._transform_pose_to_lidar_frame(pose_camera, header.stamp)
+                        if pose_lidar is not None:
+                            # Add to lidar_link pose array
+                            poses_lidar.append(pose_lidar.pose)
+                            
+                            # Transform pose to map frame
+                            pose_map = self._transform_pose_to_map_frame(pose_lidar, header.stamp)
+                            if pose_map is not None:
+                                poses_map.append(pose_map.pose)
+                        
+                        rospy.logdebug(f"Object {i}: Estimated pose successfully, face_count={pose_result.get('face_count', 'unknown')}")
+                    else:
+                        rospy.logdebug(f"Object {i}: Failed to estimate pose")
+            
+            # Concatenate all point clouds
+            if len(all_points_camera) > 0:
+                # Combine point clouds
+                combined_points_camera = np.vstack(all_points_camera)
+                
+                # Publish combined point cloud in camera_link frame
+                pointcloud_msg_camera = self.create_pointcloud2_msg(combined_points_camera, header)
+                self.pointcloud_pub.publish(pointcloud_msg_camera)
+                
+                # Transform combined point cloud to lidar_link frame
+                combined_points_lidar = self.transform_points_to_lidar_frame(combined_points_camera, header.stamp)
+                if combined_points_lidar is not None:
+                    header_lidar = Header()
+                    header_lidar.stamp = header.stamp
+                    header_lidar.frame_id = "lidar_link"
+                    pointcloud_msg_lidar = self.create_pointcloud2_msg(combined_points_lidar, header_lidar)
+                    self.pointcloud_lidar_pub.publish(pointcloud_msg_lidar)
+                    
+                    # Also store lidar points for reference
+                    all_points_lidar = combined_points_lidar
+                
+                rospy.loginfo_throttle(2, f"Published combined point cloud with {len(combined_points_camera)} points from {len(all_points_camera)} blue object(s)")
+            else:
+                rospy.logwarn_throttle(2, "No valid point clouds to publish")
+            
+            # Publish pose arrays
+            if len(poses_lidar) > 0:
+                # Publish poses in lidar_link frame
+                pose_array_lidar = PoseArray()
+                pose_array_lidar.header.stamp = header.stamp
+                pose_array_lidar.header.frame_id = "lidar_link"
+                pose_array_lidar.poses = poses_lidar
+                self.pose_lidar_pub.publish(pose_array_lidar)
+                
+                rospy.loginfo_throttle(2, f"Published {len(poses_lidar)} pose(s) in lidar_link frame")
+            
+            if len(poses_map) > 0:
+                # Publish poses in map frame
+                pose_array_map = PoseArray()
+                pose_array_map.header.stamp = header.stamp
+                pose_array_map.header.frame_id = "map"
+                pose_array_map.poses = poses_map
+                self.pose_map_pub.publish(pose_array_map)
+                
+                rospy.loginfo_throttle(2, f"Published {len(poses_map)} pose(s) in map frame")
             
         except Exception as e:
             rospy.logwarn(f"Error processing detections: {e}")
@@ -1326,6 +1370,72 @@ class DepthToPointCloud:
             return None
         except Exception as e:
             rospy.logwarn(f"Error transforming pose: {e}")
+            return None
+    
+    def _transform_pose_to_map_frame(self, pose_lidar, timestamp):
+        """
+        Transform a pose from lidar_link frame to map frame
+        
+        Args:
+            pose_lidar: PoseStamped in lidar_link frame
+            timestamp: rospy.Time for transform lookup
+        
+        Returns:
+            PoseStamped in map frame, or None if transform fails
+        """
+        try:
+            # Lookup transform from lidar_link to map
+            transform = self.tf_buffer.lookup_transform(
+                'map',  # target frame
+                'lidar_link',  # source frame
+                timestamp,
+                timeout=rospy.Duration(0.1)
+            )
+            
+            # Extract transform components
+            t = transform.transform.translation
+            r = transform.transform.rotation
+            
+            # Convert to numpy arrays
+            translation = np.array([t.x, t.y, t.z])
+            rotation_quat = np.array([r.x, r.y, r.z, r.w])
+            
+            # Convert to transformation matrix
+            T_lidar_to_map = tf.transformations.quaternion_matrix(rotation_quat)
+            T_lidar_to_map[:3, 3] = translation
+            
+            # Get pose in lidar frame as transformation matrix
+            pos = pose_lidar.pose.position
+            ori = pose_lidar.pose.orientation
+            T_pose_lidar = tf.transformations.quaternion_matrix([ori.x, ori.y, ori.z, ori.w])
+            T_pose_lidar[:3, 3] = [pos.x, pos.y, pos.z]
+            
+            # Transform: T_pose_map = T_lidar_to_map * T_pose_lidar
+            T_pose_map = T_lidar_to_map @ T_pose_lidar
+            
+            # Extract position and orientation
+            position_map = T_pose_map[:3, 3]
+            quaternion_map = tf.transformations.quaternion_from_matrix(T_pose_map)
+            
+            # Create PoseStamped message
+            pose_map = PoseStamped()
+            pose_map.header.stamp = timestamp
+            pose_map.header.frame_id = 'map'
+            pose_map.pose.position.x = float(position_map[0])
+            pose_map.pose.position.y = float(position_map[1])
+            pose_map.pose.position.z = float(position_map[2])
+            pose_map.pose.orientation.x = float(quaternion_map[0])
+            pose_map.pose.orientation.y = float(quaternion_map[1])
+            pose_map.pose.orientation.z = float(quaternion_map[2])
+            pose_map.pose.orientation.w = float(quaternion_map[3])
+            
+            return pose_map
+            
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            rospy.logwarn_throttle(5, f"TF transform from lidar_link to map unavailable: {e}")
+            return None
+        except Exception as e:
+            rospy.logwarn(f"Error transforming pose to map frame: {e}")
             return None
     
     def process_and_publish(self):
