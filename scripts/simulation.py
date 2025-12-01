@@ -173,18 +173,21 @@ class PyBulletSimulation:
         
         self.obstacle_ids = []
         
-        rospy.loginfo(f"Loading {num_obstacles} obstacles within {min_distance}-{max_distance}m radius...")
+        rospy.loginfo(f"Loading {num_obstacles} obstacles in x-ranges (3, 5) or (-5, -3)...")
         
         for i in range(num_obstacles):
-            # Random distance from robot center (avoid too close)
-            distance = np.random.uniform(min_distance, max_distance)
+            # Randomly choose between two x-ranges: (3, 5) or (-5, -3)
+            if np.random.random() < 0.5:
+                # Right side: x between 3 and 5
+                box_x = np.random.uniform(3.0, 5.0)
+            else:
+                # Left side: x between -5 and -3
+                box_x = np.random.uniform(-5.0, -3.0)
             
-            # Random angle around robot (0 to 2π)
-            angle = np.random.uniform(0, 2 * np.pi)
+            # Random y position (can be adjusted based on requirements)
+            # Using a reasonable range, e.g., -10 to 10
+            box_y = np.random.uniform(-10.0, 10.0)
             
-            # Calculate box position (robot is at [0, 0, 0.1])
-            box_x = distance * np.cos(angle)
-            box_y = distance * np.sin(angle)
             # Place box so bottom sits on ground (z = 0), so position is at half height
             box_z = box_half_height  # 0.15m
             
@@ -199,7 +202,7 @@ class PyBulletSimulation:
                                           box_orientation,
                                           useFixedBase=False)
                 self.obstacle_ids.append(box_id)
-                rospy.loginfo(f"Obstacle {i+1} loaded at position ({box_x:.2f}, {box_y:.2f}, {box_z:.2f}), distance: {distance:.2f}m")
+                rospy.loginfo(f"Obstacle {i+1} loaded at position ({box_x:.2f}, {box_y:.2f}, {box_z:.2f})")
             except Exception as e:
                 rospy.logwarn(f"Failed to load obstacle {i+1}: {e}")
         
