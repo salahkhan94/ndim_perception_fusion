@@ -3,7 +3,7 @@
 Control script for pick and place operation.
 
 This script:
-- Navigates robot to pickup location (0, 11)
+- Navigates robot to pickup location (0, 12)
 - Lowers arm and picks object
 - Navigates to bin location (0, -13)
 - Lowers arm and releases object
@@ -39,11 +39,11 @@ class ControlPickPlace:
             'IDLE': self._state_idle,
             'NAVIGATE_TO_PICKUP': self._state_navigate_to_pickup,
             'LOWER_ARM_PICKUP': self._state_lower_arm_pickup,
-            'PICK_OBJECT': self._state_pick_object,
+            'PICK_OBJECT': self.pick,
             'RAISE_ARM_PICKUP': self._state_raise_arm_pickup,
             'NAVIGATE_TO_BIN': self._state_navigate_to_bin,
             'LOWER_ARM_BIN': self._state_lower_arm_bin,
-            'RELEASE_OBJECT': self._state_release_object,
+            'RELEASE_OBJECT': self.place_in_bin,
             'DONE': self._state_done
         }
         
@@ -200,7 +200,7 @@ class ControlPickPlace:
             self.state_start_time = rospy.Time.now()
             self.arm_lowered = False  # Reset for next use
     
-    def _state_pick_object(self):
+    def pick(self):
         """Pick object with gripper"""
         if not self.object_picked:
             # Send pick command
@@ -265,7 +265,7 @@ class ControlPickPlace:
             self.state_start_time = rospy.Time.now()
             self.arm_lowered = False  # Reset for next use
     
-    def _state_release_object(self):
+    def place_in_bin(self):
         """Release object from gripper"""
         if not self.object_released:
             # Send release command
