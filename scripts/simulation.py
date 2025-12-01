@@ -21,7 +21,7 @@ import tf.transformations
 from sensor_msgs.msg import Image, LaserScan, CameraInfo
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import Twist, TransformStamped, Pose2D
-from std_msgs.msg import Float64, Header
+from std_msgs.msg import Float64, Header, Bool, Empty
 from cv_bridge import CvBridge
 
 # Try to import vision_msgs, fallback to basic messages if not available
@@ -54,6 +54,8 @@ class PyBulletSimulation:
         self.pickup_platform_id = None  # Pickup platform object ID
         self.bin_platform_id = None  # Bin platform object ID
         self.target_cuboid_ids = []  # List to store target cuboid IDs on pickup platform
+        self.grasped_object_constraint = None  # Constraint ID for grasped object
+        self.grasped_object_id = None  # ID of currently grasped object
         
         # Simulation parameters
         self.publish_rate = rospy.Rate(30)  # 30 Hz for sensor data
@@ -395,6 +397,16 @@ class PyBulletSimulation:
         if self.gripper_left_joint_idx is not None:
             rospy.loginfo(f"{gripper_left_joint_name} index: {self.gripper_left_joint_idx}")
         
+        # Get gripper base link index for grasping
+        self.gripper_base_link_idx = self._get_link_index_by_name("robotiq_2f_85_base")
+        if self.gripper_base_link_idx is None:
+            # Fallback to gripper_base_link
+            self.gripper_base_link_idx = self._get_link_index_by_name("gripper_base_link")
+        if self.gripper_base_link_idx is not None:
+            rospy.loginfo(f"Gripper base link index: {self.gripper_base_link_idx}")
+        else:
+            rospy.logwarn("Warning: Gripper base link not found!")
+        
         # Joint effort limits
         self.joint_efforts = {
             'shoulder_pan_joint': 150.0,
@@ -497,6 +509,9 @@ class PyBulletSimulation:
         
         # Subscribe to mobile base velocity commands
         rospy.Subscriber('cmd_vel', Twist, self._cmd_vel_callback)
+        
+        # Subscribe to pick command
+        rospy.Subscriber('gripper/pick', Bool, self._pick_command_callback)
     
     def _init_tf_broadcaster(self):
         """Initialize static transform broadcaster for camera_link to lidar_link"""
@@ -526,6 +541,149 @@ class PyBulletSimulation:
     def _cmd_vel_callback(self, msg):
         """Callback for mobile base velocity commands"""
         self.cmd_vel = msg
+    
+    def _pick_command_callback(self, msg):
+        """Callback for pick command - creates fixed constraint with nearest cuboid"""
+        if msg.data:  # True = pick, False = release
+            self._pick_nearest_cuboid()
+        else:
+            self._release_cuboid()
+    
+    def _find_nearest_cuboid(self, max_distance=0.5):
+        """
+        Find the nearest cuboid to the gripper.
+        
+        Args:
+            max_distance: Maximum distance to consider (meters)
+        
+        Returns:
+            tuple: (cuboid_id, distance) or (None, None) if no cuboid found
+        """
+        if self.gripper_base_link_idx is None:
+            rospy.logwarn("Gripper base link not found, cannot pick object")
+            return None, None
+        
+        # Get gripper position
+        try:
+            gripper_state = pybullet.getLinkState(self.robot_id, self.gripper_base_link_idx)
+            gripper_pos = np.array(gripper_state[0])
+        except:
+            rospy.logwarn("Failed to get gripper position")
+            return None, None
+        
+        # Combine all cuboid IDs (target cuboids + obstacles)
+        all_cuboid_ids = self.target_cuboid_ids + self.obstacle_ids
+        
+        if len(all_cuboid_ids) == 0:
+            rospy.logwarn("No cuboids available to pick")
+            return None, None
+        
+        # Find nearest cuboid
+        nearest_id = None
+        nearest_distance = float('inf')
+        
+        for cuboid_id in all_cuboid_ids:
+            try:
+                cuboid_state = pybullet.getBasePositionAndOrientation(cuboid_id)
+                cuboid_pos = np.array(cuboid_state[0])
+                distance = np.linalg.norm(gripper_pos - cuboid_pos)
+                
+                if distance < nearest_distance and distance <= max_distance:
+                    nearest_distance = distance
+                    nearest_id = cuboid_id
+            except:
+                continue
+        
+        if nearest_id is not None:
+            rospy.loginfo(f"Found nearest cuboid (ID: {nearest_id}) at distance {nearest_distance:.3f}m")
+            return nearest_id, nearest_distance
+        else:
+            rospy.logwarn(f"No cuboid found within {max_distance}m of gripper")
+            return None, None
+    
+    def _pick_nearest_cuboid(self):
+        """Create a fixed constraint between gripper and nearest cuboid"""
+        # Release any existing constraint first
+        self._release_cuboid()
+        
+        if self.gripper_base_link_idx is None:
+            rospy.logwarn("Gripper base link not found, cannot pick object")
+            return
+        
+        # Find nearest cuboid
+        cuboid_id, distance = self._find_nearest_cuboid(max_distance=1.5)
+        
+        if cuboid_id is None:
+            rospy.logwarn("No cuboid found to pick")
+            return
+        
+        try:
+            # Get current positions
+            gripper_state = pybullet.getLinkState(self.robot_id, self.gripper_base_link_idx)
+            gripper_pos = np.array(gripper_state[0])
+            gripper_orn = gripper_state[1]
+            
+            cuboid_state = pybullet.getBasePositionAndOrientation(cuboid_id)
+            cuboid_pos = np.array(cuboid_state[0])
+            cuboid_orn = cuboid_state[1]
+            
+            # Calculate relative transform
+            # Parent frame: gripper, Child frame: cuboid
+            # We want the cuboid to follow the gripper, so parent is robot_id, child is cuboid_id
+            
+            # Create fixed constraint
+            # pybullet.createConstraint(parentBodyUniqueId, parentLinkIndex, 
+            #                          childBodyUniqueId, childLinkIndex,
+            #                          jointType, jointAxis, parentFramePosition, 
+            #                          childFramePosition, parentFrameOrientation, childFrameOrientation)
+            
+            # For fixed joint, we use parentFramePosition and childFramePosition relative to each body
+            # Parent frame position: origin of gripper link (0, 0, 0 in gripper frame)
+            parent_frame_pos = [0, 0, 0]
+            parent_frame_orn = [0, 0, 0, 1]  # Identity quaternion
+            
+            # Child frame position: relative position from cuboid center to gripper
+            # In cuboid's local frame, we want to attach at the point closest to gripper
+            # For simplicity, use the cuboid center (0, 0, 0 in cuboid frame)
+            child_frame_pos = [0, 0, 0]
+            child_frame_orn = [0, 0, 0, 1]  # Identity quaternion
+            
+            # Create fixed constraint
+            constraint_id = pybullet.createConstraint(
+                parentBodyUniqueId=self.robot_id,
+                parentLinkIndex=self.gripper_base_link_idx,
+                childBodyUniqueId=cuboid_id,
+                childLinkIndex=-1,  # -1 means base link of the cuboid
+                jointType=pybullet.JOINT_FIXED,
+                jointAxis=[0, 0, 0],  # Not used for fixed joint
+                parentFramePosition=parent_frame_pos,
+                childFramePosition=child_frame_pos,
+                parentFrameOrientation=parent_frame_orn,
+                childFrameOrientation=child_frame_orn
+            )
+            
+            self.grasped_object_constraint = constraint_id
+            self.grasped_object_id = cuboid_id
+            
+            rospy.loginfo(f"Successfully picked cuboid (ID: {cuboid_id}) with constraint {constraint_id}")
+            
+        except Exception as e:
+            rospy.logwarn(f"Failed to create constraint for picking: {e}")
+            import traceback
+            rospy.logwarn(traceback.format_exc())
+    
+    def _release_cuboid(self):
+        """Release the currently grasped cuboid by removing the constraint"""
+        if self.grasped_object_constraint is not None:
+            try:
+                pybullet.removeConstraint(self.grasped_object_constraint)
+                rospy.loginfo(f"Released cuboid (ID: {self.grasped_object_id})")
+                self.grasped_object_constraint = None
+                self.grasped_object_id = None
+            except Exception as e:
+                rospy.logwarn(f"Failed to release cuboid: {e}")
+                self.grasped_object_constraint = None
+                self.grasped_object_id = None
     
     def _control_robot(self):
         """Apply control commands to the robot"""
