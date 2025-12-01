@@ -20,7 +20,7 @@ import tf.transformations
 
 from sensor_msgs.msg import Image, LaserScan, CameraInfo
 from sensor_msgs.msg import JointState
-from geometry_msgs.msg import Twist, TransformStamped, Pose2D
+from geometry_msgs.msg import Twist, TransformStamped, Pose2D, Pose, PoseArray
 from std_msgs.msg import Float64, Header, Bool, Empty
 from cv_bridge import CvBridge
 
@@ -345,6 +345,108 @@ class PyBulletSimulation:
         # Step simulation a few times to let cuboids settle on platform
         for _ in range(20):
             pybullet.stepSimulation()
+
+    def _publish_cuboid_groundtruth(self, stamp):
+        """
+        Publish ground-truth poses of all simple_box cuboids as a PoseArray in map frame.
+
+        Args:
+            stamp (rospy.Time): timestamp for header.
+        """
+        if self.cuboid_pose_pub.get_num_connections() == 0:
+            return
+
+        pose_array = PoseArray()
+        pose_array.header.stamp = stamp
+        pose_array.header.frame_id = 'map'
+
+        # Combine target cuboids and obstacles; obstacles already include inserted cuboids.
+        cuboid_ids = list(set(self.target_cuboid_ids + self.obstacle_ids))
+
+        for cuboid_id in cuboid_ids:
+            try:
+                pos, orn = pybullet.getBasePositionAndOrientation(cuboid_id)
+            except Exception:
+                continue
+
+            pose = Pose()
+            pose.position.x = pos[0]
+            pose.position.y = pos[1]
+            pose.position.z = pos[2]
+            pose.orientation.x = orn[0]
+            pose.orientation.y = orn[1]
+            pose.orientation.z = orn[2]
+            pose.orientation.w = orn[3]
+            pose_array.poses.append(pose)
+
+        self.cuboid_pose_pub.publish(pose_array)
+
+    # ==============================================================================================
+    # External API: insert_object
+    # ==============================================================================================
+    def insert_object(self, coord, description):
+        """
+        Insert a simple_box cuboid into the world at the requested coordinates.
+
+        This implements the assignment API:
+
+            insert_object(coord: tuple[float, float, float],
+                          description: dict) -> None
+
+        Args:
+            coord: (x, y, z) position in world / map frame.
+            description: Metadata dictionary. Supports optional keys:
+                - 'yaw'   (float, radians): rotation around Z axis. Default: 0.0
+                - 'fixed' (bool): if True, insert as a fixed object. Default: False
+                - other keys are currently ignored but accepted.
+        """
+        if coord is None or len(coord) != 3:
+            rospy.logwarn("insert_object: Invalid coord argument, expected (x, y, z)")
+            return
+
+        try:
+            x, y, z = float(coord[0]), float(coord[1]), float(coord[2])
+        except Exception as e:
+            rospy.logwarn(f"insert_object: Failed to parse coord {coord}: {e}")
+            return
+
+        # Parse optional description fields
+        yaw = 0.0
+        use_fixed = False
+        if isinstance(description, dict):
+            yaw = float(description.get('yaw', 0.0))
+            use_fixed = bool(description.get('fixed', False))
+
+        # Resolve simple_box URDF path (same as in obstacle/target loading)
+        box_urdf_path = rospy.get_param('~box_urdf_path', '../urdf/simple_box.urdf')
+        if not os.path.isabs(box_urdf_path):
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            box_urdf_path = os.path.join(script_dir, box_urdf_path)
+
+        # Orientation from yaw only (box is axis-aligned in roll/pitch)
+        box_orientation = pybullet.getQuaternionFromEuler([0.0, 0.0, yaw])
+
+        try:
+            box_id = pybullet.loadURDF(
+                box_urdf_path,
+                [x, y, z],
+                box_orientation,
+                useFixedBase=use_fixed,
+            )
+
+            # Track the new object in obstacle_ids so other logic (e.g. picking) can use it
+            self.obstacle_ids.append(box_id)
+
+            rospy.loginfo(
+                f"insert_object: Inserted simple_box (ID={box_id}) at "
+                f"({x:.2f}, {y:.2f}, {z:.2f}) yaw={yaw:.2f} rad fixed={use_fixed}"
+            )
+        except Exception as e:
+            rospy.logwarn(
+                f"insert_object: Failed to insert simple_box at ({x}, {y}, {z}): {e}"
+            )
+            import traceback
+            rospy.logwarn(traceback.format_exc())
     
     def _get_joint_index_by_name(self, joint_name):
         """Get the joint index by searching through all joints"""
@@ -491,6 +593,7 @@ class PyBulletSimulation:
         self.depth_camera_info_pub = rospy.Publisher('camera/depth/camera_info', CameraInfo, queue_size=1)
         self.lidar_pub = rospy.Publisher('scan', LaserScan, queue_size=1)
         self.joint_state_pub = rospy.Publisher('joint_states', JointState, queue_size=1)
+        self.cuboid_pose_pub = rospy.Publisher('/cuboids/groundtruth', PoseArray, queue_size=1)
         
         # Publisher for object detections (bounding boxes, class, score)
         self.detections_pub = rospy.Publisher('camera/detections', Detection2DArray, queue_size=1)
@@ -1284,6 +1387,9 @@ class PyBulletSimulation:
                 
                 # Publish joint states
                 self._publish_joint_states()
+
+                # Publish ground truth cuboid poses
+                self._publish_cuboid_groundtruth(current_time)
                 
                 self.last_publish_time = current_time
             

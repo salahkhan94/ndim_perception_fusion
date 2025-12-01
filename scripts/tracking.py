@@ -16,7 +16,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseArray, Pose, Point, Quaternion
-from std_msgs.msg import Header
+from std_msgs.msg import Header, Int32, Float64, Float64MultiArray
 import tf.transformations
 
 
@@ -135,14 +135,20 @@ class FusionNode:
         # Subscribers
         self.map_sub = rospy.Subscriber('/map', OccupancyGrid, self.map_callback)
         self.poses_sub = rospy.Subscriber('/cuboids/poses/map', PoseArray, self.poses_callback)
+        self.groundtruth_sub = rospy.Subscriber('/cuboids/groundtruth', PoseArray, self.groundtruth_callback)
         
         # Publishers
         self.tracked_poses_pub = rospy.Publisher('/tracked_objects/poses', PoseArray, queue_size=1)
+        self.metrics_pub = rospy.Publisher('/tracking/metrics', Float64MultiArray, queue_size=1)
+        self.matched_pairs_pub = rospy.Publisher('/tracking/matched_pairs', Int32, queue_size=1)
+        self.accuracy_pub = rospy.Publisher('/tracking/accuracy', Float64, queue_size=1)
+        self.pose_error_pub = rospy.Publisher('/tracking/pose_error', Float64, queue_size=1)
         
         # Storage
         self.occupancy_map = None  # nav_msgs/OccupancyGrid
         self.tracked_objects = []  # List of TrackedObject instances
         self.next_id = 0  # Counter for unique track IDs
+        self.groundtruth_poses = []  # List of ground truth poses (geometry_msgs/Pose)
         
         # Parameters
         self.association_threshold = rospy.get_param('~association_threshold', 1.5)  # meters
@@ -165,6 +171,19 @@ class FusionNode:
         """
         self.occupancy_map = msg
         rospy.logdebug("Received occupancy grid map update")
+    
+    def groundtruth_callback(self, msg):
+        """
+        Callback for ground truth cuboid poses.
+        
+        Args:
+            msg: geometry_msgs/PoseArray
+        """
+        self.groundtruth_poses = msg.poses
+        rospy.logdebug(f"Received {len(self.groundtruth_poses)} ground truth poses")
+        
+        # Calculate and publish metrics
+        self._calculate_and_publish_metrics()
     
     def poses_callback(self, msg):
         """
@@ -258,6 +277,10 @@ class FusionNode:
         
         # Publish tracked objects poses
         self._publish_tracked_poses(msg.header.stamp)
+        
+        # Calculate and publish metrics if ground truth is available
+        if len(self.groundtruth_poses) > 0:
+            self._calculate_and_publish_metrics()
         
         # Log current state
         rospy.loginfo_throttle(2, f"Tracking {len(self.tracked_objects)} objects: "
@@ -454,6 +477,135 @@ class FusionNode:
         
         rospy.logdebug(f"Published {len(pose_array.poses)} tracked object poses")
     
+    def _calculate_and_publish_metrics(self):
+        """
+        Match ground truth poses with tracked objects and calculate metrics.
+        """
+        if len(self.groundtruth_poses) == 0:
+            rospy.logdebug("No ground truth poses available for metrics calculation")
+            return
+        
+        if len(self.tracked_objects) == 0:
+            rospy.logdebug("No tracked objects available for metrics calculation")
+            # Publish zero metrics
+            self._publish_metrics(0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            return
+        
+        # Match ground truth with tracked objects using Hungarian algorithm
+        matched_pairs, pose_errors = self._match_groundtruth_to_tracks()
+        
+        # Calculate metrics
+        num_matched = len(matched_pairs)
+        num_groundtruth = len(self.groundtruth_poses)
+        num_tracked = len(self.tracked_objects)
+        
+        # Accuracy: percentage of ground truth objects that were matched
+        accuracy = (num_matched / num_groundtruth * 100.0) if num_groundtruth > 0 else 0.0
+        
+        # Pose errors
+        if len(pose_errors) > 0:
+            mean_pose_error = np.mean(pose_errors)
+            max_pose_error = np.max(pose_errors)
+            min_pose_error = np.min(pose_errors)
+            std_pose_error = np.std(pose_errors)
+        else:
+            mean_pose_error = 0.0
+            max_pose_error = 0.0
+            min_pose_error = 0.0
+            std_pose_error = 0.0
+        
+        # Publish metrics
+        self._publish_metrics(num_matched, accuracy, mean_pose_error, max_pose_error, min_pose_error, std_pose_error)
+        
+        rospy.loginfo_throttle(2, f"Metrics: matched={num_matched}/{num_groundtruth} GT, "
+                                   f"accuracy={accuracy:.1f}%, "
+                                   f"mean_error={mean_pose_error:.3f}m, "
+                                   f"max_error={max_pose_error:.3f}m")
+    
+    def _match_groundtruth_to_tracks(self):
+        """
+        Match ground truth poses to tracked objects using Hungarian algorithm.
+        
+        Returns:
+            matched_pairs: List of (track_idx, gt_idx) tuples
+            pose_errors: List of pose errors (Euclidean distance) for matched pairs
+        """
+        n_tracks = len(self.tracked_objects)
+        n_groundtruth = len(self.groundtruth_poses)
+        
+        if n_tracks == 0 or n_groundtruth == 0:
+            return [], []
+        
+        # Create cost matrix: rows = tracks, columns = ground truth
+        cost_matrix = np.zeros((n_tracks, n_groundtruth))
+        
+        # Fill cost matrix with Euclidean distances
+        for i, track in enumerate(self.tracked_objects):
+            track_pos = track.get_position()
+            for j, gt_pose in enumerate(self.groundtruth_poses):
+                gt_pos = np.array([
+                    gt_pose.position.x,
+                    gt_pose.position.y,
+                    gt_pose.position.z
+                ])
+                distance = np.linalg.norm(track_pos - gt_pos)
+                cost_matrix[i, j] = distance
+        
+        # Hungarian algorithm to find optimal assignment
+        track_indices, gt_indices = linear_sum_assignment(cost_matrix)
+        
+        # Hungarian algorithm to find optimal assignment
+        track_indices, gt_indices = linear_sum_assignment(cost_matrix)
+        
+        # Filter matches by threshold (same as association threshold)
+        matched_pairs = []
+        pose_errors = []
+        
+        for track_idx, gt_idx in zip(track_indices, gt_indices):
+            distance = cost_matrix[track_idx, gt_idx]
+            if distance <= self.association_threshold:
+                matched_pairs.append((track_idx, gt_idx))
+                pose_errors.append(distance)
+        
+        return matched_pairs, pose_errors
+    
+    def _publish_metrics(self, num_matched, accuracy, mean_error, max_error, min_error, std_error):
+        """
+        Publish tracking metrics.
+        
+        Args:
+            num_matched: Number of matched pairs
+            accuracy: Accuracy percentage
+            mean_error: Mean pose error (meters)
+            max_error: Maximum pose error (meters)
+            min_error: Minimum pose error (meters)
+            std_error: Standard deviation of pose error (meters)
+        """
+        # Publish individual metrics
+        matched_msg = Int32()
+        matched_msg.data = num_matched
+        self.matched_pairs_pub.publish(matched_msg)
+        
+        accuracy_msg = Float64()
+        accuracy_msg.data = accuracy
+        self.accuracy_pub.publish(accuracy_msg)
+        
+        error_msg = Float64()
+        error_msg.data = mean_error
+        self.pose_error_pub.publish(error_msg)
+        
+        # Publish combined metrics as Float64MultiArray
+        metrics_msg = Float64MultiArray()
+        metrics_msg.data = [
+            float(num_matched),
+            accuracy,
+            mean_error,
+            max_error,
+            min_error,
+            std_error
+        ]
+        self.metrics_pub.publish(metrics_msg)
+    
     def get_tracked_objects(self):
         """
         Get list of currently tracked objects.
@@ -462,6 +614,74 @@ class FusionNode:
             List of TrackedObject instances
         """
         return self.tracked_objects.copy()
+    
+    def read_object(self, coord, radius=0.15):
+        """
+        Query tracked objects within a radius of the given coordinate.
+        
+        Implements the API:
+            read_object(coord: tuple[float, float, float], radius: float = 0.15) -> dict | None
+        
+        Args:
+            coord: Tuple of (x, y, z) coordinates in map frame
+            radius: Search radius in meters (default: 0.15m)
+        
+        Returns:
+            dict with information about objects found, or None if no objects found
+            Dictionary contains:
+                - 'count': Number of objects found
+                - 'objects': List of object information dictionaries, each containing:
+                    - 'id': Track ID
+                    - 'position': [x, y, z]
+                    - 'orientation': [x, y, z, w] (quaternion)
+                    - 'confidence': Confidence score
+                    - 'distance': Distance from query coordinate
+        """
+        if len(self.tracked_objects) == 0:
+            return None
+        
+        # Convert coord to numpy array
+        query_pos = np.array([float(coord[0]), float(coord[1]), float(coord[2])])
+        
+        # Find objects within radius
+        found_objects = []
+        
+        for track in self.tracked_objects:
+            track_pos = track.get_position()
+            distance = np.linalg.norm(track_pos - query_pos)
+            
+            if distance <= radius:
+                # Object is within radius
+                obj_info = {
+                    'id': track.id,
+                    'position': [float(track_pos[0]), float(track_pos[1]), float(track_pos[2])],
+                    'orientation': [
+                        float(track.pose.orientation.x),
+                        float(track.pose.orientation.y),
+                        float(track.pose.orientation.z),
+                        float(track.pose.orientation.w)
+                    ],
+                    'confidence': float(track.confidence),
+                    'distance': float(distance),
+                    'class_id': track.class_id
+                }
+                found_objects.append(obj_info)
+        
+        if len(found_objects) == 0:
+            return None
+        
+        # Sort by distance (closest first)
+        found_objects.sort(key=lambda x: x['distance'])
+        
+        # Return dictionary with results
+        result = {
+            'count': len(found_objects),
+            'objects': found_objects,
+            'query_coord': [float(coord[0]), float(coord[1]), float(coord[2])],
+            'radius': float(radius)
+        }
+        
+        return result
 
 
 if __name__ == '__main__':
