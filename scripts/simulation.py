@@ -53,6 +53,7 @@ class PyBulletSimulation:
         self.wall_ids = []  # List to store wall object IDs
         self.pickup_platform_id = None  # Pickup platform object ID
         self.bin_platform_id = None  # Bin platform object ID
+        self.target_cuboid_ids = []  # List to store target cuboid IDs on pickup platform
         
         # Simulation parameters
         self.publish_rate = rospy.Rate(30)  # 30 Hz for sensor data
@@ -76,6 +77,9 @@ class PyBulletSimulation:
         
         # Load pickup and bin platforms
         self._load_platforms()
+        
+        # Load target cuboids on pickup platform
+        self._load_target_cuboids()
         
         # Initialize joint indices and parameters
         self._init_joint_info()
@@ -288,6 +292,54 @@ class PyBulletSimulation:
         except Exception as e:
             rospy.logwarn(f"Failed to load bin platform: {e}")
             self.bin_platform_id = None
+    
+    def _load_target_cuboids(self):
+        """Load target cuboids on the pickup platform"""
+        # Resolve simple_box URDF path
+        box_urdf_path = rospy.get_param('~box_urdf_path', '../urdf/simple_box.urdf')
+        if not os.path.isabs(box_urdf_path):
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            box_urdf_path = os.path.join(script_dir, box_urdf_path)
+        
+        # Pickup platform position (from _load_platforms)
+        pickup_platform_y = 13.0
+        pickup_platform_z = 0.0005
+        
+        # Platform is 0.1m tall, so top surface is at: platform_z + 0.05 = 0.0505m
+        # Box is 0.4m tall (from simple_box.urdf), so half height is 0.2m
+        # Box center z = platform_top + half_box_height = 0.0505 + 0.2 = 0.2505m
+        box_z = 0.0505 + 0.2  # Place box on top of platform
+        
+        # Place two cuboids on the pickup platform, spaced apart
+        # Platform is 5m x 5m, so we can place them at x offsets
+        cuboid_positions = [
+            [-0.5, pickup_platform_y, box_z],  # Left cuboid
+            [0.5, pickup_platform_y, box_z],    # Right cuboid
+        ]
+        
+        # Orientation (can be random or fixed)
+        cuboid_orientation = pybullet.getQuaternionFromEuler([0, 0, 0])
+        
+        self.target_cuboid_ids = []
+        
+        for i, cuboid_pos in enumerate(cuboid_positions):
+            try:
+                # Load cuboid (not fixed base, so it can be picked up)
+                cuboid_id = pybullet.loadURDF(box_urdf_path,
+                                               cuboid_pos,
+                                               cuboid_orientation,
+                                               useFixedBase=False)
+                self.target_cuboid_ids.append(cuboid_id)
+                rospy.loginfo(f"Target cuboid {i+1} loaded on pickup platform at position "
+                             f"({cuboid_pos[0]:.2f}, {cuboid_pos[1]:.2f}, {cuboid_pos[2]:.2f})")
+            except Exception as e:
+                rospy.logwarn(f"Failed to load target cuboid {i+1}: {e}")
+        
+        rospy.loginfo(f"Total {len(self.target_cuboid_ids)} target cuboids loaded on pickup platform")
+        
+        # Step simulation a few times to let cuboids settle on platform
+        for _ in range(20):
+            pybullet.stepSimulation()
     
     def _get_joint_index_by_name(self, joint_name):
         """Get the joint index by searching through all joints"""
